@@ -142,6 +142,9 @@ Open: `http://127.0.0.1:5000`
 - `cells` import supports multi-sheet Excel (`2G`, `3G`, `4G`, `5G`).
 - Validation misses are exported to `validation_*.xlsx`.
 - Mapping resolution uses cell suffix + technology + frequency/band logic.
+- Screenshot automation script requires:
+  - `RANSITES_PRESENTER_USER` (optional, default: `presenter`)
+  - `RANSITES_PRESENTER_PASSWORD` (required)
 
 ## Security Notes
 
@@ -172,4 +175,4 @@ Target outcomes:
 
 ## License
 
-Internal enterprise project (update according to your organization policy).
+MIT License. See `LICENSE`.

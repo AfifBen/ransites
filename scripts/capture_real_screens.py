@@ -1,6 +1,7 @@
 ﻿import threading
 import time
 import sys
+import os
 from pathlib import Path
 
 from selenium import webdriver
@@ -17,22 +18,35 @@ ASSETS = ROOT / 'presentation_assets'
 ASSETS.mkdir(parents=True, exist_ok=True)
 
 
+def get_presenter_credentials():
+    username = os.getenv('RANSITES_PRESENTER_USER', 'presenter').strip()
+    password = os.getenv('RANSITES_PRESENTER_PASSWORD', '').strip()
+    if not password:
+        raise RuntimeError(
+            'Missing RANSITES_PRESENTER_PASSWORD environment variable. '
+            'Set it before running screenshot automation.'
+        )
+    return username, password
+
+
 def ensure_presenter_user():
     from app import create_app, db
     from app.models import User
 
+    username, password = get_presenter_credentials()
+
     app = create_app()
     with app.app_context():
-        user = User.query.filter_by(username='presenter').first()
+        user = User.query.filter_by(username=username).first()
         if not user:
-            user = User(username='presenter', is_admin=True, is_active=True)
-            user.set_password('Ransites2026!')
+            user = User(username=username, is_admin=True, is_active=True)
+            user.set_password(password)
             db.session.add(user)
             db.session.commit()
         else:
             user.is_active = True
             user.is_admin = True
-            user.set_password('Ransites2026!')
+            user.set_password(password)
             db.session.commit()
 
 
@@ -68,13 +82,15 @@ def build_driver():
 
 
 def login(driver, base_url):
+    username, password = get_presenter_credentials()
+
     driver.get(base_url + '/login')
     wait = WebDriverWait(driver, 20)
     wait.until(EC.presence_of_element_located((By.NAME, 'username')))
     driver.find_element(By.NAME, 'username').clear()
-    driver.find_element(By.NAME, 'username').send_keys('presenter')
+    driver.find_element(By.NAME, 'username').send_keys(username)
     driver.find_element(By.NAME, 'password').clear()
-    driver.find_element(By.NAME, 'password').send_keys('Ransites2026!')
+    driver.find_element(By.NAME, 'password').send_keys(password)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
     wait.until(EC.url_contains('/dashboard'))
 
