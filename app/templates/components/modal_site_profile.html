@@ -1,0 +1,109 @@
+<div class="modal fade" id="siteProfileModal" tabindex="-1" aria-labelledby="siteProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header modal-premium-header text-white">
+                <h5 class="modal-title" id="siteProfileModalLabel">
+                    <i class="bi bi-building me-2"></i>Site Profile
+                </h5>
+                <div class="d-flex align-items-center gap-2">
+                    <a id="spOpenMapsBtn" href="#" target="_blank" rel="noopener" class="btn btn-sm btn-outline-light disabled" aria-disabled="true">
+                        <i class="bi bi-geo-alt me-1"></i>Open in Google Maps
+                    </a>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-4">
+                <div id="siteProfileLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted small mb-0">Loading site profile...</p>
+                </div>
+                <div id="siteProfileContent" style="display:none;">
+                    <div class="row g-2 mb-3" id="spKpiCards"></div>
+
+                    <div class="card mb-3">
+                        <div class="card-body py-2">
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span class="text-muted small fw-semibold">Technologies:</span>
+                                <div id="spTechBadges" class="d-flex flex-wrap gap-2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-lg-5">
+                            <div class="card h-100">
+                                <div class="card-header bg-dark text-white py-2">
+                                    <strong id="spSiteTitle">Site</strong>
+                                </div>
+                                <div class="card-body p-0">
+                                    <table class="table table-sm mb-0">
+                                        <tbody id="spSiteInfoBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-7">
+                            <div class="card h-100">
+                                <div class="card-header bg-dark text-white py-2">
+                                    <strong>Adjacent Sites & Sector Beams</strong>
+                                </div>
+                                <div class="card-body p-2">
+                                    <div id="siteProfileMap" style="height: 320px; border-radius: 8px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-12 col-lg-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-dark text-white py-2">
+                                    <strong>Sectors</strong>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Sector</th>
+                                                    <th>Azimuth</th>
+                                                    <th>HBA</th>
+                                                    <th>Cells</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="spSectorsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-dark text-white py-2">
+                                    <strong>Nearest 5 Sites</strong>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Site Code</th>
+                                                    <th>Name</th>
+                                                    <th>Distance (km)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="spNearestBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer modal-premium-footer border-top-0">
+                <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>

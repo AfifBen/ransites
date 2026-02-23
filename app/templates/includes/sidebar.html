@@ -1,0 +1,151 @@
+{% set path = request.path %}
+<nav class="nav flex-column sidebar-nav" id="sidebarAccordion">
+    <a class="nav-link {{ 'active' if path.startswith('/dashboard') else '' }}" href="{{ url_for('main.dashboard') }}">
+        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+    </a>
+
+    <hr class="my-2 border-secondary">
+
+    <div class="mb-1">
+        <a class="nav-link d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse"
+           href="#operationsCollapse"
+           role="button"
+           aria-expanded="true"
+           aria-controls="operationsCollapse">
+            <div>
+                <strong class="text-white text-uppercase">
+                    <i class="bi bi-diagram-3-fill me-2"></i> Radio Operations
+                </strong>
+            </div>
+            <i class="bi bi-chevron-down small text-white"></i>
+        </a>
+
+        <div class="collapse {{ 'show' if path.startswith('/sites') or path.startswith('/sectors') or path.startswith('/cells') else '' }}" id="operationsCollapse" data-bs-parent="#sidebarAccordion">
+            <nav class="nav flex-column ps-3">
+                <a class="nav-link {{ 'active' if path.startswith('/sites') else '' }}" href="{{ url_for('list_bp.view_sites') }}">
+                    <i class="bi bi-geo-alt-fill me-2"></i> Sites
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/sectors') else '' }}" href="{{ url_for('list_bp.view_sectors') }}">
+                    <i class="bi bi-pie-chart-fill me-2"></i> Sectors
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/cells') else '' }}" href="{{ url_for('list_bp.view_cells') }}">
+                    <i class="bi bi-broadcast-pin me-2"></i> Cells
+                </a>
+            </nav>
+        </div>
+    </div>
+
+    <div class="mb-1">
+        <a class="nav-link d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse"
+           href="#referenceCollapse"
+           role="button"
+           aria-expanded="false"
+           aria-controls="referenceCollapse">
+            <div>
+                <strong class="text-white text-uppercase">
+                    <i class="bi bi-map-fill me-2"></i> Geographic Data
+                </strong>
+            </div>
+            <i class="bi bi-chevron-down small text-white"></i>
+        </a>
+
+        <div class="collapse {{ 'show' if path.startswith('/regions') or path.startswith('/wilayas') or path.startswith('/communes') else '' }}" id="referenceCollapse" data-bs-parent="#sidebarAccordion">
+            <nav class="nav flex-column ps-3">
+                <a class="nav-link {{ 'active' if path.startswith('/regions') else '' }}" href="{{ url_for('list_bp.view_regions') }}">
+                    <i class="bi bi-globe me-2"></i> Regions
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/wilayas') else '' }}" href="{{ url_for('list_bp.view_wilayas') }}">
+                    <i class="bi bi-map me-2"></i> Wilayas
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/communes') else '' }}" href="{{ url_for('list_bp.view_communes') }}">
+                    <i class="bi bi-pin-map me-2"></i> Communes
+                </a>
+            </nav>
+        </div>
+    </div>
+
+    <div class="mb-1">
+        <a class="nav-link d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse"
+           href="#resourcesCollapse"
+           role="button"
+           aria-expanded="false"
+           aria-controls="resourcesCollapse">
+            <div>
+                <strong class="text-white text-uppercase">
+                    <i class="bi bi-hdd-stack-fill me-2"></i> Resources
+                </strong>
+            </div>
+            <i class="bi bi-chevron-down small text-white"></i>
+        </a>
+
+        <div class="collapse {{ 'show' if path.startswith('/antennas') or path.startswith('/vendors') or path.startswith('/suppliers') else '' }}" id="resourcesCollapse" data-bs-parent="#sidebarAccordion">
+            <nav class="nav flex-column ps-3">
+                <a class="nav-link {{ 'active' if path.startswith('/antennas') else '' }}" href="{{ url_for('list_bp.view_antennas') }}">
+                    <i class="bi bi-reception-4 me-2"></i> Antennas
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/vendors') or path.startswith('/suppliers') else '' }}" href="{{ url_for('list_bp.view_vendors') }}">
+                    <i class="bi bi-building me-2"></i> Suppliers
+                </a>
+            </nav>
+        </div>
+    </div>
+
+    <hr class="my-3 border-secondary">
+
+    <div class="mb-1">
+        <a class="nav-link d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse"
+           href="#planningCollapse"
+           role="button"
+           aria-expanded="false"
+           aria-controls="planningCollapse">
+            <div>
+                <strong class="text-white text-uppercase">
+                    <i class="bi bi-compass-fill me-2"></i> Planning Tools
+                </strong>
+            </div>
+            <i class="bi bi-chevron-down small text-white"></i>
+        </a>
+
+        <div class="collapse {{ 'show' if path.startswith('/allplan_export') or path.startswith('/kml_export') else '' }}" id="planningCollapse" data-bs-parent="#sidebarAccordion">
+            <nav class="nav flex-column ps-3">
+                <a class="nav-link {{ 'active' if path.startswith('/allplan_export') else '' }}" href="{{ url_for('main.allplan_export_page') }}">
+                    <i class="bi bi-grid-3x3-gap-fill me-2"></i> Allplan
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/kml_export') else '' }}" href="{{ url_for('main.kml_export_page') }}">
+                    <i class="bi bi-globe2 me-2"></i> KML
+                </a>
+            </nav>
+        </div>
+    </div>
+
+    <div class="mb-1">
+        <a class="nav-link d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse"
+           href="#adminCollapse"
+           role="button"
+           aria-expanded="false"
+           aria-controls="adminCollapse">
+            <div>
+                <strong class="text-white text-uppercase">
+                    <i class="bi bi-shield-lock-fill me-2"></i> Administration
+                </strong>
+            </div>
+            <i class="bi bi-chevron-down small text-white"></i>
+        </a>
+
+        <div class="collapse {{ 'show' if path.startswith('/import_export') or path.startswith('/users') else '' }}" id="adminCollapse" data-bs-parent="#sidebarAccordion">
+            <nav class="nav flex-column ps-3">
+                <a class="nav-link {{ 'active' if path.startswith('/users') else '' }}" href="{{ url_for('auth.users_page') }}">
+                    <i class="bi bi-person-gear me-2"></i> User Management
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/import_export') else '' }}" href="{{ url_for('main.import_export') }}">
+                    <i class="bi bi-arrow-repeat me-2"></i> Data Import / Export
+                </a>
+            </nav>
+        </div>
+    </div>
+</nav>

@@ -1,0 +1,33 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual env
+venv/
+.env/
+
+# Local config / secrets
+.env
+
+# Local DB / runtime data
+instance/*.db
+instance/*.sqlite
+instance/*.sqlite3
+
+# Generated reports / exports
+output/
+presentation_assets/
+validation_*.xlsx
+cell_import_errors.xlsx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log

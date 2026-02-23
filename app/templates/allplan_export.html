@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Allplan Export{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">Allplan Export</h2>
+        <p class="lead">Generate a multi-sheet Excel output (2G, 3G, 4G and NOT_FOUND) from a cell list file.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-xl-8">
+        <div class="card shadow-sm tool-card border-primary">
+            <div class="card-header allplan-main-header text-white d-flex align-items-center">
+                <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                <h5 class="m-0">Build Allplan Workbook</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('main.export_allplan') }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label for="cell_file" class="form-label">Source file (.xlsx or .csv)</label>
+                        <input class="form-control" type="file" id="cell_file" name="cell_file" accept=".xlsx,.csv" required>
+                        <div class="form-text">Preferred input: an Excel file containing the list of cells to export.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cell_list" class="form-label">Text fallback (optional)</label>
+                        <textarea id="cell_list" name="cell_list" class="form-control" rows="3" placeholder="Example: 4C07X073_4, 3C19X496_3"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-download me-1"></i> Export Allplan
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-4">
+        <div class="card shadow-sm tool-card h-100">
+            <div class="card-header allplan-side-header text-white">
+                <h6 class="m-0">Validation Summary</h6>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0 ps-3">
+                    <li>Automatic split by technology into dedicated sheets.</li>
+                    <li>A <code>NOT_FOUND</code> sheet with unresolved items.</li>
+                    <li>Issue type detail for each row: site, sector, or mapping.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+radio_manager/
+├── app/
+│   ├── __init__.py       # App factory
+│   ├── models.py         # Modèles SQLAlchemy (basés sur l'ERD fourni)
+│   ├── routes/         # dossiers  pour les routes: site.py, sector.py .....
+│   ├── forms.py          # Formulaires WTForms si besoin (pour plus tard)
+│   ├── templates/        # Templates Jinja2
+│   │   ├── base.html     # Layout de base avec Bootstrap
+│   │   └── ...           # Autres templates
+│   └── static/           # CSS/JS (Bootstrap)
+│       ├── css/
+│       └── js/
+├── migrations/           # Géré par Flask-Migrate
+├── run.py                # Point d'entrée
+├── .env
+└── requirements.txt

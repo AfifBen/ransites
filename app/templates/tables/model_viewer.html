@@ -1,0 +1,22 @@
+{# radio_manager/app/templates/tables/model_viewer.html #}
+{% extends "base.html" %}
+{% from "macros/tables.html" import render_data_table, render_data_table_init %}
+
+{% block title %}RANSites - {{ titre }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    {{ render_data_table(id_table, titre, colonnes, donnees) }}
+</div>
+{% endblock %}
+
+{% block init_scripts %}
+    {{ render_data_table_init(id_table, scroll_x=True) }}
+
+    <script>
+        $(document).ready(function() {
+            const entityName = "{{ titre | lower | replace(' ', '_') }}";
+            $('#deleteBulkBtn').attr('data-entity', entityName);
+        });
+    </script>
+{% endblock %}

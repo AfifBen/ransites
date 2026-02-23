@@ -1,0 +1,101 @@
+/* DataTable visual tuning and anti-layout-jump behavior */
+
+.table.datatable-pending tbody {
+    visibility: hidden;
+}
+
+.table.datatable-ready tbody {
+    visibility: visible;
+    transition: opacity 0.15s ease;
+}
+
+.table thead th,
+.table tbody td {
+    white-space: nowrap;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.table thead th {
+    background-color: #f6f8fc;
+    font-weight: 600;
+}
+
+.table tbody tr:hover {
+    background-color: #eef4ff;
+}
+
+.dataTables_wrapper .dataTables_filter input {
+    border-radius: 10px;
+    border: 1px solid #d8deea;
+    padding: 5px 10px;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+    border-radius: 8px !important;
+    margin: 2px;
+    padding: 4px 9px;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background-color: #0f4c81 !important;
+    color: #ffffff !important;
+    border-color: #0f4c81 !important;
+}
+
+.dataTables_scrollBody {
+    border-bottom: 1px solid #dee4f0;
+}
+
+table.dataTable tr.selected > * {
+    box-shadow: none !important;
+    background-color: transparent !important;
+    color: inherit !important;
+}
+
+.form-check-input {
+    cursor: pointer;
+    width: 1.1em;
+    height: 1.1em;
+}
+
+table.dataTable tbody td.select-checkbox:before {
+    display: none !important;
+}
+
+.row-checkbox,
+#selectAll {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #394150;
+    border-radius: 50%;
+    background-color: #ffffff;
+    position: relative;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.row-checkbox:checked::after,
+#selectAll:checked::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 7px;
+    height: 7px;
+    background-color: #1f2937;
+    border-radius: 50%;
+}
+
+.row-checkbox:checked,
+#selectAll:checked {
+    border-color: #1f2937;
+}
+
+.form-check-input:checked {
+    background-color: #ffffff;
+    border-color: #ffffff;
+}

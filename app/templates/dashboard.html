@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+{% set stats = dashboard.stats %}
+{% set dq = dashboard.data_quality %}
+
+<div class="page-header mb-3">
+    <div>
+        <h2 class="mb-1">Network Dashboard</h2>
+        <p class="lead">Operational snapshot of inventory, technology mix and data quality.</p>
+    </div>
+    <div class="text-muted small">
+        Updated: {{ dashboard.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="card dashboard-kpi-card h-100">
+            <div class="card-body">
+                <div class="dashboard-kpi-label">Sites</div>
+                <div class="dashboard-kpi-value">{{ stats.total_sites }}</div>
+                <div class="dashboard-kpi-sub">{{ stats.total_regions }} regions / {{ stats.total_wilayas }} wilayas</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="card dashboard-kpi-card h-100">
+            <div class="card-body">
+                <div class="dashboard-kpi-label">Sectors</div>
+                <div class="dashboard-kpi-value">{{ stats.total_sectors }}</div>
+                <div class="dashboard-kpi-sub">Avg {{ dashboard.avg_sectors_per_site }} per site</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="card dashboard-kpi-card h-100">
+            <div class="card-body">
+                <div class="dashboard-kpi-label">Cells</div>
+                <div class="dashboard-kpi-value">{{ stats.total_cells }}</div>
+                <div class="dashboard-kpi-sub">Avg {{ dashboard.avg_cells_per_sector }} per sector</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="card dashboard-kpi-card h-100">
+            <div class="card-body">
+                <div class="dashboard-kpi-label">Mapping Coverage</div>
+                <div class="dashboard-kpi-value">{{ dq.mapping_coverage_pct }}%</div>
+                <div class="dashboard-kpi-sub">{{ dq.mapped_cells }} mapped / {{ stats.total_cells }} cells</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-12 col-xl-6">
+        <div class="card dashboard-panel h-100">
+            <div class="card-header dashboard-panel-header">
+                <h5 class="m-0">Technology Mix</h5>
+            </div>
+            <div class="card-body">
+                {% for row in dashboard.tech_distribution %}
+                <div class="dashboard-bar-item">
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="fw-semibold">{{ row.label }}</span>
+                        <span>{{ row.value }} cells ({{ row.pct }}%)</span>
+                    </div>
+                    <div class="progress dashboard-progress" role="progressbar" aria-label="{{ row.label }}" aria-valuenow="{{ row.pct }}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" style="width: {{ row.pct }}%"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="card-footer bg-transparent">
+                <a href="{{ url_for('list_bp.view_cells') }}" class="btn btn-sm btn-outline-primary">Open Cells Table</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+        <div class="card dashboard-panel h-100">
+            <div class="card-header dashboard-panel-header">
+                <h5 class="m-0">Data Quality Signals</h5>
+            </div>
+            <div class="card-body">
+                <div class="dashboard-issue-row">
+                    <span>Sites without sectors</span>
+                    <span class="badge bg-danger-subtle text-danger-emphasis">{{ dq.sites_without_sectors }}</span>
+                </div>
+                <div class="dashboard-issue-row">
+                    <span>Sectors without cells</span>
+                    <span class="badge bg-warning-subtle text-warning-emphasis">{{ dq.sectors_without_cells }}</span>
+                </div>
+                <div class="dashboard-issue-row">
+                    <span>Cells without sector</span>
+                    <span class="badge bg-danger-subtle text-danger-emphasis">{{ dq.cells_without_sector }}</span>
+                </div>
+                <div class="dashboard-issue-row">
+                    <span>Cells without antenna</span>
+                    <span class="badge bg-warning-subtle text-warning-emphasis">{{ dq.cells_without_antenna }}</span>
+                </div>
+                <div class="dashboard-issue-row mb-0">
+                    <span>Sites without vendor</span>
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ dq.sites_without_supplier }}</span>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">
+                <a href="{{ url_for('list_bp.view_sites') }}" class="btn btn-sm btn-outline-primary">Review Sites</a>
+                <a href="{{ url_for('list_bp.view_sectors') }}" class="btn btn-sm btn-outline-primary">Review Sectors</a>
+                <a href="{{ url_for('list_bp.view_cells') }}" class="btn btn-sm btn-outline-primary">Review Cells</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-xl-6">
+        <div class="card dashboard-panel h-100">
+            <div class="card-header dashboard-panel-header">
+                <h5 class="m-0">Top Wilayas by Site Count</h5>
+            </div>
+            <div class="card-body">
+                {% if dashboard.top_wilayas %}
+                    {% for item in dashboard.top_wilayas %}
+                    <div class="dashboard-rank-item">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span class="fw-semibold">{{ item.name }}</span>
+                            <span>{{ item.count }}</span>
+                        </div>
+                        <div class="progress dashboard-progress thin" role="progressbar" aria-label="{{ item.name }}" aria-valuenow="{{ item.pct }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" style="width: {{ item.pct }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">No wilaya data available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+        <div class="card dashboard-panel h-100">
+            <div class="card-header dashboard-panel-header">
+                <h5 class="m-0">Top Vendors by Site Count</h5>
+            </div>
+            <div class="card-body">
+                {% if dashboard.top_suppliers %}
+                    {% for item in dashboard.top_suppliers %}
+                    <div class="dashboard-rank-item">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span class="fw-semibold">{{ item.name }}</span>
+                            <span>{{ item.count }}</span>
+                        </div>
+                        <div class="progress dashboard-progress thin" role="progressbar" aria-label="{{ item.name }}" aria-valuenow="{{ item.pct }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" style="width: {{ item.pct }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">No vendor data available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

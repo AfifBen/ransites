@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}User Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">User Management</h2>
+        <p class="lead">Assign each engineer to wilayas, communes and specific sites.</p>
+    </div>
+</div>
+
+<div class="card tool-card shadow-sm">
+    <div class="card-header allplan-main-header text-white">
+        <h5 class="m-0">Users Scope Table</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle user-admin-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Password</th>
+                        <th>Role / Active</th>
+                        <th>Wilayas</th>
+                        <th>Communes</th>
+                        <th>Sites</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="table-light">
+                        <form method="POST" action="{{ url_for('auth.create_user') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <td>
+                                <input class="form-control form-control-sm" name="username" placeholder="new engineer" required>
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm" type="password" name="password" minlength="6" placeholder="min 6 chars" required>
+                            </td>
+                            <td>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="new_is_admin" name="is_admin">
+                                    <label class="form-check-label" for="new_is_admin">Admin</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="new_is_active" name="is_active" checked>
+                                    <label class="form-check-label" for="new_is_active">Active</label>
+                                </div>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm scope-wilaya" name="wilaya_ids" multiple size="6">
+                                    {% for wilaya in wilayas %}
+                                    <option value="{{ wilaya.id }}">{{ wilaya.id }} - {{ wilaya.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm scope-commune" name="commune_ids" multiple size="6">
+                                    {% for commune in communes %}
+                                    <option value="{{ commune.id }}" data-wilaya="{{ commune.wilaya_id }}">{{ commune.name }} ({{ commune.wilaya.name }})</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm scope-site" name="site_ids" multiple size="6">
+                                    {% for site in sites %}
+                                    <option value="{{ site.id }}" data-wilaya="{{ site.wilaya_id }}" data-commune="{{ site.commune_id }}">
+                                        {{ site.code_site }} - {{ site.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" type="submit">Create</button>
+                            </td>
+                        </form>
+                    </tr>
+
+                    {% for user in users %}
+                    <tr>
+                        <form method="POST" action="{{ url_for('auth.update_user', user_id=user.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <td>
+                                <input class="form-control form-control-sm mb-2" name="username" value="{{ user.username }}" required>
+                                <span class="badge {{ 'text-bg-primary' if user.is_admin_user else 'text-bg-secondary' }}">
+                                    {{ 'Admin' if user.is_admin_user else 'Engineer' }}
+                                </span>
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm" type="password" name="password" minlength="6" placeholder="leave blank">
+                            </td>
+                            <td>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="admin_{{ user.id }}" name="is_admin" {{ 'checked' if user.is_admin_user else '' }}>
+                                    <label class="form-check-label" for="admin_{{ user.id }}">Admin</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="active_{{ user.id }}" name="is_active" {{ 'checked' if user.is_active else '' }}>
+                                    <label class="form-check-label" for="active_{{ user.id }}">Active</label>
+                                </div>
+                            </td>
+                            <td>
+                                {% set selected_wilayas = user.assigned_wilayas | map(attribute='id') | list %}
+                                <select class="form-select form-select-sm scope-wilaya" name="wilaya_ids" multiple size="6">
+                                    {% for wilaya in wilayas %}
+                                    <option value="{{ wilaya.id }}" {{ 'selected' if wilaya.id in selected_wilayas else '' }}>
+                                        {{ wilaya.id }} - {{ wilaya.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                {% set selected_communes = user.assigned_communes | map(attribute='id') | list %}
+                                <select class="form-select form-select-sm scope-commune" name="commune_ids" multiple size="6">
+                                    {% for commune in communes %}
+                                    <option value="{{ commune.id }}" data-wilaya="{{ commune.wilaya_id }}" {{ 'selected' if commune.id in selected_communes else '' }}>
+                                        {{ commune.name }} ({{ commune.wilaya.name }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                {% set selected_sites = user.assigned_sites | map(attribute='id') | list %}
+                                <select class="form-select form-select-sm scope-site" name="site_ids" multiple size="6">
+                                    {% for site in sites %}
+                                    <option value="{{ site.id }}" data-wilaya="{{ site.wilaya_id }}" data-commune="{{ site.commune_id }}" {{ 'selected' if site.id in selected_sites else '' }}>
+                                        {{ site.code_site }} - {{ site.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                            </td>
+                        </form>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-muted text-center">No users found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <small class="text-muted">
+            Rule: selecting a Wilaya auto-selects all its Communes and Sites. You can manually deselect specific Communes/Sites to assign them to another profile.
+        </small>
+    </div>
+</div>
+{% endblock %}
+
+{% block init_scripts %}
+<script>
+    (function () {
+        function getSelectedValues(selectEl) {
+            var selected = [];
+            for (var i = 0; i < selectEl.options.length; i++) {
+                if (selectEl.options[i].selected) selected.push(String(selectEl.options[i].value));
+            }
+            return selected;
+        }
+
+        function applyScopeSync(formEl) {
+            var wilayaSelect = formEl.querySelector('.scope-wilaya');
+            var communeSelect = formEl.querySelector('.scope-commune');
+            var siteSelect = formEl.querySelector('.scope-site');
+            if (!wilayaSelect || !communeSelect || !siteSelect) return;
+
+            var wilayaIds = new Set(getSelectedValues(wilayaSelect));
+
+            for (var i = 0; i < communeSelect.options.length; i++) {
+                var communeOpt = communeSelect.options[i];
+                var communeWilaya = String(communeOpt.dataset.wilaya || "");
+                if (wilayaIds.has(communeWilaya)) communeOpt.selected = true;
+            }
+
+            for (var j = 0; j < siteSelect.options.length; j++) {
+                var siteOpt = siteSelect.options[j];
+                var siteWilaya = String(siteOpt.dataset.wilaya || "");
+                if (wilayaIds.has(siteWilaya)) siteOpt.selected = true;
+            }
+        }
+
+        var forms = document.querySelectorAll('.user-admin-table form');
+        for (var idx = 0; idx < forms.length; idx++) {
+            (function (formEl) {
+                var wilayaSelect = formEl.querySelector('.scope-wilaya');
+                if (!wilayaSelect) return;
+                wilayaSelect.addEventListener('change', function () {
+                    applyScopeSync(formEl);
+                });
+            })(forms[idx]);
+        }
+    })();
+</script>
+{% endblock %}

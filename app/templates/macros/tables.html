@@ -1,0 +1,101 @@
+{# radio_manager/app/templates/macros/tables.html #}
+
+{% macro render_data_table(id_table, titre, colonnes, donnees) %}
+{% set entity_slug = titre | lower | replace(' ', '_') | replace('/', '_') %}
+{% set is_user_table = entity_slug in ['user', 'users'] %}
+{% set is_site_table = entity_slug in ['site', 'sites'] %}
+<div class="card shadow-sm mb-4" data-entity="{{ entity_slug }}">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
+        <h5 class="m-0 text-white">{{ titre }}</h5>
+        <div class="table-actions">
+            {% if is_site_table %}
+            <button id="siteProfileBtn" class="btn btn-outline-light btn-sm" title="Site Profile" style="display:none;">
+                <i class="bi bi-card-list"></i>
+            </button>
+            <button id="d4bBtn" class="btn btn-outline-success btn-sm" title="D4b" style="display:none;">
+                <i class="bi bi-file-earmark-excel"></i>
+            </button>
+            {% endif %}
+            <button id="editBtn" class="btn btn-outline-warning btn-sm" title="Edit" style="display:none;">
+                <i class="bi bi-pencil"></i>
+            </button>
+            {% if not is_user_table %}
+            <button id="deleteBulkBtn" class="btn btn-outline-info btn-sm" title="Delete selected"
+             style="display:none;" data-entity="{{ entity_slug }}" >
+                <i class="bi bi-trash"></i>
+            </button>
+            {% endif %}
+
+            {% if not is_user_table %}
+            <button class="btn btn-outline-light btn-sm" title="Export">
+                <i class="bi bi-download"></i>
+            </button>
+            {% endif %}
+
+            {% if not is_user_table %}
+            <form action="{{ url_for('import_bp.import_data', entity=titre | lower | replace(' ', '_') | replace('/', '_')) }}"
+                  method="POST"
+                  enctype="multipart/form-data"
+                  id="form-upload-{{ id_table }}"
+                  class="d-inline-flex align-items-center">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <input type="file" name="file" accept=".csv, .xlsx" style="display: none;" id="file-input-{{ id_table }}">
+
+                <button type="button"
+                        class="btn btn-outline-light btn-sm btn-import-direct"
+                        title="Import"
+                        data-target-id="{{ id_table }}">
+                    <i class="bi bi-upload"></i>
+                </button>
+            </form>
+            {% endif %}
+
+            <button type="button"
+                    id="addBtn"
+                    class="btn btn-outline-light btn-sm"
+                    title="Add"
+                    data-bs-toggle="modal"
+                    data-bs-target="#addModal">
+                <i class="bi bi-plus"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <table id="{{ id_table }}" class="table table-hover table-bordered datatable-pending" style="width:100%">
+            <thead>
+                <tr>
+                    <th style="width: 10px;" class="text-center">
+                        <input type="checkbox" id="selectAll" class="form-check-input">
+                    </th>
+                    {% for col in colonnes %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in donnees %}
+                <tr>
+                    <td></td>
+                    {% for item in row %}
+                    <td>{{ item | safe }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro render_data_table_init(id_table, scroll_x=True, language_url='') %}
+<script>
+    $(document).ready(function() {
+        if (typeof initializeDataTable === 'function') {
+            initializeDataTable('{{ id_table }}', '{{ scroll_x }}', '{{ language_url }}');
+        } else {
+            console.error("Error: initializeDataTable is not defined. Check datatable_init.js");
+        }
+    });
+</script>
+{% endmacro %}

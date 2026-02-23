@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}KML Export{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">KML Export</h2>
+        <p class="lead">Export sites and sector beams directly from database data.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-lg-6">
+        <div class="card tool-card shadow-sm h-100">
+            <div class="card-header allplan-main-header text-white">
+                <h5 class="m-0">Sites KML</h5>
+            </div>
+            <div class="card-body d-flex flex-column">
+                <p class="text-muted">Point features for accessible sites with labels and metadata.</p>
+                <button class="btn btn-primary mt-auto open-site-kml-modal" type="button" data-target-url="{{ url_for('doc_bp.export_kml_sites') }}">
+                    <i class="bi bi-sliders me-1"></i> Configure and Export
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card tool-card shadow-sm h-100">
+            <div class="card-header allplan-side-header text-white">
+                <h5 class="m-0">Sectors KML (Beams)</h5>
+            </div>
+            <div class="card-body d-flex flex-column">
+                <p class="text-muted">Beam polygons generated from sector azimuth and antenna beamwidth (from cell antennas).</p>
+                <button class="btn btn-primary mt-auto open-sector-kml-modal" type="button" data-target-url="{{ url_for('doc_bp.export_kml_sectors') }}">
+                    <i class="bi bi-sliders me-1"></i> Configure and Export
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

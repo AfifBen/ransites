@@ -1,0 +1,40 @@
+<div class="modal fade" id="kmlSectorModal" tabindex="-1" aria-labelledby="kmlSectorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header modal-premium-header text-white">
+                <h5 class="modal-title" id="kmlSectorModalLabel">
+                    <i class="bi bi-geo-alt-fill me-2"></i><span id="kmlBeamTitle">Beam Export</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form id="kmlSectorForm">
+                <div class="modal-body">
+                    <input type="hidden" id="kmlSectorTarget" value="/export_kml/sectors">
+
+                    <div class="mb-3">
+                        <label class="form-label" for="beamLengthKm">Beam Length (km)</label>
+                        <input type="number" step="0.1" min="0.1" max="10" class="form-control" id="beamLengthKm" name="beam_length_km" value="0.8" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="beamWidthDeg">Beam Opening (deg)</label>
+                        <input type="number" step="1" min="5" max="180" class="form-control" id="beamWidthDeg" name="beam_width_deg" value="40" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="beamColor">Beam Color</label>
+                        <input type="color" class="form-control form-control-color" id="beamColor" name="beam_color" value="#0055ff" title="Choose beam color">
+                    </div>
+                </div>
+
+                <div class="modal-footer modal-premium-footer border-top-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-download me-1"></i>Export KML
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

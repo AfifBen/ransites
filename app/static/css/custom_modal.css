@@ -1,0 +1,107 @@
+/* Premium modal styling aligned with global theme */
+
+.modal-content {
+    border: 1px solid var(--rm-border, #e5e9f2);
+    border-radius: 14px;
+    background: var(--rm-surface, #ffffff);
+}
+
+.modal-premium-header {
+    background: linear-gradient(90deg, #0f4c81 0%, #0a3a63 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.modal-premium-header .modal-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.modal-premium-footer {
+    background: #f6f8fc;
+}
+
+#editModal .form-label,
+#addModal .form-label {
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: #3a4556;
+    margin-bottom: 0.25rem;
+    text-transform: capitalize;
+}
+
+#editModal .form-control,
+#addModal .form-control,
+#editModal .form-select,
+#addModal .form-select {
+    border-radius: 8px;
+    border: 1px solid #d4dbe8;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#editModal .form-control:focus,
+#addModal .form-control:focus,
+#editModal .form-select:focus,
+#addModal .form-select:focus {
+    border-color: #0f4c81;
+    box-shadow: 0 0 0 0.2rem rgba(15, 76, 129, 0.18);
+    outline: 0;
+}
+
+#editModal .form-control[readonly],
+#addModal .form-control[readonly] {
+    background-color: #edf1f8;
+    opacity: 0.95;
+    cursor: not-allowed;
+    border-style: dashed;
+}
+
+#modalFormContent,
+#addModalFormContent {
+    margin-top: 10px;
+}
+
+#kmlSiteModal .kml-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+#kmlSiteModal .kml-icon-radio {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+#kmlSiteModal .kml-icon-card {
+    border: 1px solid #d4dbe8;
+    border-radius: 10px;
+    padding: 8px 6px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    background: #ffffff;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    min-height: 78px;
+}
+
+#kmlSiteModal .kml-icon-card img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+#kmlSiteModal .kml-icon-card span {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #3a4556;
+}
+
+#kmlSiteModal .kml-icon-radio:checked + .kml-icon-card {
+    border-color: #0f4c81;
+    box-shadow: 0 0 0 0.18rem rgba(15, 76, 129, 0.16);
+    transform: translateY(-1px);
+}

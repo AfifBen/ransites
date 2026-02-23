@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Import / Export{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">Data Import / Export</h2>
+        <p class="lead">Upload one file per entity or export the current dataset in one click.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    {% macro render_import_export_card(title, color_class, entity_name, help_text) %}
+    <div class="col-12 col-lg-6">
+        <div class="card shadow-sm tool-card h-100">
+            <div class="card-header text-white {{ color_class }} d-flex align-items-center">
+                <i class="bi bi-database me-2"></i>
+                <h5 class="m-0">{{ title }}</h5>
+            </div>
+            <div class="card-body d-flex flex-column">
+                <p class="text-muted small mb-3">{{ help_text }}</p>
+                <form action="{{ url_for('import_bp.import_data', entity=entity_name) }}" method="POST" enctype="multipart/form-data" class="mt-auto">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label for="file_{{ entity_name }}" class="form-label">Input file (.csv, .xlsx)</label>
+                        <input class="form-control" type="file" id="file_{{ entity_name }}" name="file" accept=".csv,.xlsx" required>
+                    </div>
+
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-upload me-1"></i> Import
+                        </button>
+                        <a href="{{ url_for('main.download_import_template', entity=entity_name) }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i> Template
+                        </a>
+                        <a href="{{ url_for('main.export_data', entity=entity_name) }}" class="btn btn-outline-primary">
+                            <i class="bi bi-download me-1"></i> Export
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endmacro %}
+
+    {{ render_import_export_card('Sites', 'bg-dark', 'sites', 'Site code, coordinates, technical and administrative details.') }}
+    {{ render_import_export_card('Sectors', 'bg-dark', 'sectors', 'Azimuth, HBA and sector-to-site relationships.') }}
+    {{ render_import_export_card('Cells', 'bg-dark', 'cells', 'Cell-level radio records split by technology.') }}
+    {{ render_import_export_card('Cell ID Mapping', 'bg-dark', 'mapping', 'Mapping between cell identifiers and sector code.') }}
+    {{ render_import_export_card('Antennas', 'bg-dark', 'antennas', 'Antenna catalog and key characteristics.') }}
+    {{ render_import_export_card('Suppliers', 'bg-dark', 'suppliers', 'Standardized supplier and vendor list.') }}
+    {{ render_import_export_card('Regions', 'bg-dark', 'regions', 'Geographic reference at region level.') }}
+    {{ render_import_export_card('Wilayas', 'bg-dark', 'wilayas', 'Geographic reference at wilaya level.') }}
+    {{ render_import_export_card('Communes', 'bg-dark', 'communes', 'Geographic reference at commune level.') }}
+</div>
+{% endblock %}
