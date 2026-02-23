@@ -36,7 +36,7 @@ pycparser==3.0
 pyparsing==3.3.2
 PySocks==1.7.1
 python-dateutil==2.9.0.post0
-python-dotenv==1.1.1
+python-dotenv==1.2.1
 python-pptx==1.0.2
 pytz==2025.2
 requests==2.32.5
