@@ -7,7 +7,6 @@
 
     <hr class="my-2 border-secondary">
 
-    {% if is_admin %}
     <div class="mb-1">
         <a class="nav-link d-flex justify-content-between align-items-center"
            data-bs-toggle="collapse"
@@ -37,7 +36,6 @@
             </nav>
         </div>
     </div>
-    {% endif %}
 
     {% if is_admin %}
     <div class="mb-1">
@@ -98,6 +96,7 @@
             </nav>
         </div>
     </div>
+    {% endif %}
 
     <hr class="my-3 border-secondary">
 
@@ -131,6 +130,7 @@
         </div>
     </div>
 
+    {% if is_admin %}
     <div class="mb-1">
         <a class="nav-link d-flex justify-content-between align-items-center"
            data-bs-toggle="collapse"
