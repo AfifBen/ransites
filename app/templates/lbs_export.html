@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}LBS Export{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">LBS Export</h2>
+        <p class="lead">Generate LBS workbook (2G/3G/4G) from a cell list and sync existing cells with sectors.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12">
+        <div class="card shadow-sm tool-card border-primary">
+            <div class="card-header allplan-main-header text-white d-flex align-items-center">
+                <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                <h5 class="m-0">Build LBS Workbook</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('main.export_lbs') }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label for="cell_file" class="form-label">Source file (.xlsx or .csv)</label>
+                        <input class="form-control" type="file" id="cell_file" name="cell_file" accept=".xlsx,.csv">
+                        <div class="form-text">First column must contain cell names.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cell_list" class="form-label">Text fallback (optional)</label>
+                        <textarea id="cell_list" name="cell_list" class="form-control" rows="3" placeholder="Example: 4C07X073_4, 3C19X496_3"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-download me-1"></i> Export LBS
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

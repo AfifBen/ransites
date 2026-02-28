@@ -82,14 +82,39 @@ def get_sectors_all():
     return jsonify([{"id": s.id, "name": f"{s.code_sector}"} for s in sectors])
 
 @helper_bp.route('/get_regions')
+@login_required
 def get_regions():
-    regions = Region.query.all()
-    return jsonify([{"id": r.id, "name": r.name} for r in regions])
+    accessible_communes = get_accessible_commune_ids()
+    query = Region.query
+    if accessible_communes is not None:
+        if not accessible_communes:
+            return jsonify([])
+        query = (
+            query
+            .join(Wilaya, Wilaya.region_id == Region.id)
+            .join(Commune, Commune.wilaya_id == Wilaya.id)
+            .filter(Commune.id.in_(list(accessible_communes)))
+            .distinct()
+        )
+    regions = query.order_by(Region.name.asc()).all()
+    return jsonify([{"id": r.id, "name": r.name, "label": r.name} for r in regions])
 
 @helper_bp.route('/get_wilayas')
+@login_required
 def get_wilayas():
-    wilayas = Wilaya.query.all()
-    return jsonify([{"id": w.id, "name": f"{w.id} - {w.name}", "label": w.name} for w in wilayas])
+    query = Wilaya.query
+    accessible_communes = get_accessible_commune_ids()
+    if accessible_communes is not None:
+        if not accessible_communes:
+            return jsonify([])
+        query = (
+            query
+            .join(Commune, Commune.wilaya_id == Wilaya.id)
+            .filter(Commune.id.in_(list(accessible_communes)))
+            .distinct()
+        )
+    wilayas = query.order_by(Wilaya.name.asc()).all()
+    return jsonify([{"id": w.id, "name": f"{w.id} - {w.name}", "label": w.name, "region_id": w.region_id} for w in wilayas])
 
 @helper_bp.route('/get_antennas_all')
 def get_antennas_all():

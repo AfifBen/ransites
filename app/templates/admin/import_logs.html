@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Admin Logs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">Admin Logs</h2>
+        <p class="lead">Import reports and runtime errors by date and entity.</p>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label">Type</label>
+                <select class="form-select" name="type">
+                    <option value="" {{ '' == selected_type and 'selected' or '' }}>All</option>
+                    <option value="sites" {{ 'sites' == selected_type and 'selected' or '' }}>Sites</option>
+                    <option value="sectors" {{ 'sectors' == selected_type and 'selected' or '' }}>Sectors</option>
+                    <option value="cells" {{ 'cells' == selected_type and 'selected' or '' }}>Cells</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label">Action</label>
+                <select class="form-select" name="action">
+                    <option value="" {{ '' == selected_action and 'selected' or '' }}>All Actions</option>
+                    <option value="create" {{ 'create' == selected_action and 'selected' or '' }}>Create</option>
+                    <option value="update" {{ 'update' == selected_action and 'selected' or '' }}>Update</option>
+                    <option value="delete" {{ 'delete' == selected_action and 'selected' or '' }}>Delete</option>
+                    <option value="import" {{ 'import' == selected_action and 'selected' or '' }}>Import</option>
+                    <option value="sync" {{ 'sync' == selected_action and 'selected' or '' }}>Sync</option>
+                    <option value="login" {{ 'login' == selected_action and 'selected' or '' }}>Login</option>
+                    <option value="logout" {{ 'logout' == selected_action and 'selected' or '' }}>Logout</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label">From</label>
+                <input class="form-control" type="date" name="date_from" value="{{ date_from }}">
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label">To</label>
+                <input class="form-control" type="date" name="date_to" value="{{ date_to }}">
+            </div>
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button class="btn btn-primary w-100" type="submit">
+                    <i class="bi bi-funnel me-1"></i>Filter
+                </button>
+                <a class="btn btn-outline-secondary w-100" href="{{ url_for('auth.import_logs_page') }}">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-dark text-white">
+        <h5 class="m-0">Reports</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date UTC</th>
+                        <th>User</th>
+                        <th>Type</th>
+                        <th>Mode</th>
+                        <th>Source File</th>
+                        <th>Status</th>
+                        <th>Failed Rows</th>
+                        <th>Message</th>
+                        <th>Report</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in reports %}
+                    <tr>
+                        <td>{{ row.created_at or '-' }}</td>
+                        <td>{{ row.username or '-' }}</td>
+                        <td>{{ (row.entity or '-') | upper }}</td>
+                        <td>{{ row.import_kind or 'standard' }}</td>
+                        <td>{{ row.source_file or '-' }}</td>
+                        <td>
+                            {% if (row.status or '') == 'SUCCESS' %}
+                                <span class="badge bg-success">SUCCESS</span>
+                            {% else %}
+                                <span class="badge bg-danger">{{ row.status or 'FAILED' }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.failed_rows_count or 0 }}</td>
+                        <td class="small">{{ row.message or '-' }}</td>
+                        <td>
+                            {% if row.report_path %}
+                            <a href="{{ url_for('import_bp.download_import_report', report_id=row.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-download me-1"></i>Download
+                            </a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted">No reports found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,9 +1,11 @@
 #route/list_data.py
 
-from flask import Blueprint, render_template
-from sqlalchemy import select
+from flask import Blueprint, render_template, request, jsonify
+from sqlalchemy import select, or_, asc, desc, cast, String
+from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload
 import logging
-from app.security import get_accessible_commune_ids, get_accessible_site_ids, login_required
+from app.security import admin_required, get_accessible_commune_ids, get_accessible_site_ids, login_required
 
 # --- IMPORTS CRITIQUES : Ajustez si nécessaire ---
 try:
@@ -35,7 +37,7 @@ logger = logging.getLogger(__name__)
 # FONCTIONS D'AFFICHAGE (LISTING)
 # ====================================================================
 
-def list_sites():
+def list_sites(dq_filter=''):
     """
     Liste tous les sites avec les informations associées (Commune, Wilaya, Region, Supplier).
     """
@@ -53,6 +55,16 @@ def list_sites():
         .join(Region, Wilaya.region_id == Region.id) \
         .outerjoin(Supplier, Site.supplier_id == Supplier.id) \
         .order_by(Site.code_site)
+
+        if dq_filter == 'without_sectors':
+            # Keep only correction scope: sites that still have no sector linked.
+            statement = (
+                statement
+                .outerjoin(Sector, Sector.site_id == Site.id)
+                .filter(Sector.id.is_(None))
+            )
+        elif dq_filter == 'without_vendor':
+            statement = statement.filter(Site.supplier_id.is_(None))
         
         accessible_sites = get_accessible_site_ids()
         if accessible_sites is not None:
@@ -87,7 +99,7 @@ def list_sites():
         logger.exception("Erreur lors de la récupération des sites")
         return []
 
-def list_sectors():
+def list_sectors(without_cells=False):
     """
     Liste tous les secteurs avec le Code Site associé.
     """
@@ -96,6 +108,12 @@ def list_sectors():
             Sector,
             Site.code_site.label('site_code')
         ).join(Site, Sector.site_id == Site.id).order_by(Sector.code_sector)
+        if without_cells:
+            statement = (
+                statement
+                .outerjoin(Cell, Cell.sector_id == Sector.id)
+                .filter(Cell.id.is_(None))
+            )
 
         accessible_sites = get_accessible_site_ids()
         if accessible_sites is not None:
@@ -125,25 +143,36 @@ def list_cells():
     Liste toutes les cellules avec les infos Antenna et Sector.
     """
     try:
-        # On utilise une jointure pour récupérer les noms au lieu des simples IDs
-        query = db.session.query(
-            Cell, 
-            Antenna.model.label('antenna_model'),
-            Sector.code_sector.label('sector_name')
-        ).outerjoin(Antenna, Cell.antenna_id == Antenna.id)\
-         .outerjoin(Sector, Cell.sector_id == Sector.id)\
-         .outerjoin(Site, Sector.site_id == Site.id)
+        # Eager-load related objects to avoid N+1 queries on tech profiles.
+        query = (
+            db.session.query(Cell)
+            .options(
+                joinedload(Cell.antenna),
+                joinedload(Cell.sector),
+                joinedload(Cell.profile_2g),
+                joinedload(Cell.profile_3g),
+                joinedload(Cell.profile_4g),
+                joinedload(Cell.profile_5g),
+            )
+        )
 
         accessible_sites = get_accessible_site_ids()
         if accessible_sites is not None:
             if not accessible_sites:
                 return []
-            query = query.filter(Site.id.in_(list(accessible_sites)))
+            query = (
+                query
+                .outerjoin(Sector, Cell.sector_id == Sector.id)
+                .outerjoin(Site, Sector.site_id == Site.id)
+                .filter(Site.id.in_(list(accessible_sites)))
+            )
 
-        results = query.all()
+        results = query.order_by(Cell.cellname.asc()).all()
 
         data = []
-        for cell, ant_model, sec_name in results:
+        for cell in results:
+            ant_model = cell.antenna.model if cell.antenna else None
+            sec_name = cell.sector.code_sector if cell.sector else None
             tech = (cell.technology or "").strip().upper()
             tech_settings = "N/A"
             if tech == "2G" and cell.profile_2g:
@@ -152,7 +181,8 @@ def list_cells():
                     f"LAC={cell.profile_2g.lac or '-'} / "
                     f"RAC={cell.profile_2g.rac or '-'} / "
                     f"BSIC={cell.profile_2g.bsic or '-'} / "
-                    f"BCCH={cell.profile_2g.bcch or '-'}"
+                    f"BCCH={cell.profile_2g.bcch or '-'} / "
+                    f"CI={cell.profile_2g.ci or '-'}"
                 )
             elif tech == "3G" and cell.profile_3g:
                 tech_settings = (
@@ -160,7 +190,8 @@ def list_cells():
                     f"LAC={cell.profile_3g.lac or '-'} / "
                     f"RAC={cell.profile_3g.rac or '-'} / "
                     f"PSC={cell.profile_3g.psc or '-'} / "
-                    f"DLARFCN={cell.profile_3g.dlarfcn or '-'}"
+                    f"DLARFCN={cell.profile_3g.dlarfcn or '-'} / "
+                    f"CI={cell.profile_3g.ci or '-'}"
                 )
             elif tech == "4G" and cell.profile_4g:
                 tech_settings = (
@@ -168,7 +199,8 @@ def list_cells():
                     f"TAC={cell.profile_4g.tac or '-'} / "
                     f"RSI={cell.profile_4g.rsi or '-'} / "
                     f"PCI={cell.profile_4g.pci or '-'} / "
-                    f"EARFCN={cell.profile_4g.earfcn or '-'}"
+                    f"EARFCN={cell.profile_4g.earfcn or '-'} / "
+                    f"CI={cell.profile_4g.ci or '-'}"
                 )
             elif tech == "5G" and cell.profile_5g:
                 tech_settings = (
@@ -176,7 +208,8 @@ def list_cells():
                     f"LAC={cell.profile_5g.lac or '-'} / "
                     f"RSI={cell.profile_5g.rsi or '-'} / "
                     f"PCI={cell.profile_5g.pci or '-'} / "
-                    f"ARFCN={cell.profile_5g.arfcn or '-'}"
+                    f"ARFCN={cell.profile_5g.arfcn or '-'} / "
+                    f"CI={cell.profile_5g.ci or '-'}"
                 )
 
             data.append({
@@ -229,7 +262,11 @@ def list_communes():
 @list_bp.route('/sites', methods=['GET'])
 @login_required
 def view_sites():
-    sites = list_sites()
+    dq_filter = (request.args.get("dq_filter") or "").strip().lower()
+    if dq_filter not in {"without_sectors", "without_vendor"}:
+        without_sectors = str(request.args.get("without_sectors", "")).strip().lower() in {"1", "true", "yes", "on"}
+        dq_filter = "without_sectors" if without_sectors else ""
+    sites = list_sites(dq_filter=dq_filter)
 
     # Keep ID internally (used by edit/delete logic) but hide it in DataTable.
     column_keys = [
@@ -273,6 +310,7 @@ def view_sites():
         id_table='sitesTable',
         titre='Sites',
         entity_type='sites',
+        dq_filter=dq_filter,
         colonnes=column_headers,
         donnees=data_for_table,
     )
@@ -280,7 +318,8 @@ def view_sites():
 @list_bp.route('/sectors', methods=['GET'])
 @login_required
 def view_sectors():
-    sectors = list_sectors()
+    dq_filter = (request.args.get("dq_filter") or "").strip().lower()
+    sectors = list_sectors(without_cells=(dq_filter == "without_cells"))
     
     # Clés du dictionnaire à mapper
     column_keys = ['id', 'code_sector', 'site_code', 'azimuth', 'hba', 'coverage_goal']
@@ -314,29 +353,165 @@ def view_sectors():
     return render_template('tables/model_viewer.html', # Template spécifique ou générique
                            id_table='sectorsTable',
                            titre='Sectors',
+                           entity_type='sectors',
+                           dq_filter=dq_filter,
                            colonnes=column_headers,
                            donnees=data_for_table)
 
 @list_bp.route('/cells')
 @login_required
 def view_cells():
-    data = list_cells()
-    
-    # Définition des entêtes pour le tableau HTML
+    dq_filter = (request.args.get("dq_filter") or "").strip().lower()
+    if dq_filter not in {"without_sector", "without_antenna"}:
+        dq_filter = ""
+    # Cells page is rendered empty and filled by server-side DataTables AJAX.
     headers = ['ID', 'Cell Name', 'Tech', 'Freq', 'Antenna', 'Sector', 'M-Tilt', 'E-Tilt', 'Tech Settings']
-    column_keys = ['id', 'cellname', 'technology', 'frequency', 'antenna', 'sector', 'tilt_mech', 'tilt_elec', 'tech_settings']
-    
-    # Transformation des dictionnaires en listes pour le template
-    rows = [[str(item.get(k) or '') for k in column_keys] for item in data]
-    
-    return render_template('tables/model_viewer.html', 
-                           id_table='cellsTable', 
-                           titre='Cells', 
-                           colonnes=headers, 
-                           donnees=rows)
+    return render_template('tables/model_viewer.html',
+                           id_table='cellsTable',
+                           titre='Cells',
+                           entity_type='cells',
+                           dq_filter=dq_filter,
+                           colonnes=headers,
+                           donnees=[])
+
+
+
+def _build_cell_tech_settings(cell):
+    tech = (cell.technology or '').strip().upper()
+    if tech == '2G' and cell.profile_2g:
+        return (
+            f"BSC={cell.profile_2g.bsc or '-'} / "
+            f"LAC={cell.profile_2g.lac or '-'} / "
+            f"RAC={cell.profile_2g.rac or '-'} / "
+            f"BSIC={cell.profile_2g.bsic or '-'} / "
+            f"BCCH={cell.profile_2g.bcch or '-'} / "
+            f"CI={cell.profile_2g.ci or '-'}"
+        )
+    if tech == '3G' and cell.profile_3g:
+        return (
+            f"RNC={cell.profile_3g.rnc or '-'} / "
+            f"LAC={cell.profile_3g.lac or '-'} / "
+            f"RAC={cell.profile_3g.rac or '-'} / "
+            f"PSC={cell.profile_3g.psc or '-'} / "
+            f"DLARFCN={cell.profile_3g.dlarfcn or '-'} / "
+            f"CI={cell.profile_3g.ci or '-'}"
+        )
+    if tech == '4G' and cell.profile_4g:
+        return (
+            f"eNodeB={cell.profile_4g.enodeb or '-'} / "
+            f"TAC={cell.profile_4g.tac or '-'} / "
+            f"RSI={cell.profile_4g.rsi or '-'} / "
+            f"PCI={cell.profile_4g.pci or '-'} / "
+            f"EARFCN={cell.profile_4g.earfcn or '-'} / "
+            f"CI={cell.profile_4g.ci or '-'}"
+        )
+    if tech == '5G' and cell.profile_5g:
+        return (
+            f"GNODEB={cell.profile_5g.gnodeb or '-'} / "
+            f"LAC={cell.profile_5g.lac or '-'} / "
+            f"RSI={cell.profile_5g.rsi or '-'} / "
+            f"PCI={cell.profile_5g.pci or '-'} / "
+            f"ARFCN={cell.profile_5g.arfcn or '-'} / "
+            f"CI={cell.profile_5g.ci or '-'}"
+        )
+    return 'N/A'
+
+
+@list_bp.route('/cells/data', methods=['GET'])
+@login_required
+def cells_data():
+    try:
+        draw = int(request.args.get('draw', 1))
+        start = max(int(request.args.get('start', 0)), 0)
+        length = int(request.args.get('length', 50))
+        length = 50 if length <= 0 else min(length, 200)
+        search_value = (request.args.get('search[value]', '') or '').strip()
+        dq_filter = (request.args.get('dq_filter') or '').strip().lower()
+        order_col = int(request.args.get('order[0][column]', 2))
+        order_dir = (request.args.get('order[0][dir]', 'asc') or 'asc').lower()
+
+        query = (
+            db.session.query(Cell)
+            .options(
+                joinedload(Cell.antenna),
+                joinedload(Cell.sector),
+                joinedload(Cell.profile_2g),
+                joinedload(Cell.profile_3g),
+                joinedload(Cell.profile_4g),
+                joinedload(Cell.profile_5g),
+            )
+            .outerjoin(Antenna, Cell.antenna_id == Antenna.id)
+            .outerjoin(Sector, Cell.sector_id == Sector.id)
+            .outerjoin(Site, Sector.site_id == Site.id)
+        )
+
+        accessible_sites = get_accessible_site_ids()
+        if accessible_sites is not None:
+            if not accessible_sites:
+                return jsonify({'draw': draw, 'recordsTotal': 0, 'recordsFiltered': 0, 'data': []})
+            query = query.filter(Site.id.in_(list(accessible_sites)))
+
+        if dq_filter == 'without_sector':
+            query = query.filter(Cell.sector_id.is_(None))
+        elif dq_filter == 'without_antenna':
+            query = query.filter(Cell.antenna_id.is_(None))
+
+        records_total = query.count()
+
+        if search_value:
+            like = f"%{search_value}%"
+            query = query.filter(
+                or_(
+                    cast(Cell.id, String).ilike(like),
+                    Cell.cellname.ilike(like),
+                    Cell.technology.ilike(like),
+                    Cell.frequency.ilike(like),
+                    Antenna.model.ilike(like),
+                    Sector.code_sector.ilike(like),
+                )
+            )
+
+        records_filtered = query.count()
+
+        order_map = {
+            1: Cell.id,
+            2: Cell.cellname,
+            3: Cell.technology,
+            4: Cell.frequency,
+            5: Antenna.model,
+            6: Sector.code_sector,
+            7: Cell.tilt_mechanical,
+            8: Cell.tilt_electrical,
+        }
+        order_expr = order_map.get(order_col, Cell.cellname)
+        query = query.order_by(desc(order_expr) if order_dir == 'desc' else asc(order_expr))
+
+        rows = query.offset(start).limit(length).all()
+
+        data = []
+        for cell in rows:
+            data.append([
+                '',  # Placeholder for checkbox column (DataTables col 0)
+                str(cell.id),
+                cell.cellname or '',
+                cell.technology or '',
+                cell.frequency or '',
+                (cell.antenna.model if cell.antenna else 'N/A'),
+                (cell.sector.code_sector if cell.sector else 'N/A'),
+                '' if cell.tilt_mechanical is None else str(cell.tilt_mechanical),
+                '' if cell.tilt_electrical is None else str(cell.tilt_electrical),
+                _build_cell_tech_settings(cell),
+            ])
+
+        return jsonify({'draw': draw, 'recordsTotal': records_total, 'recordsFiltered': records_filtered, 'data': data})
+    except Exception:
+        logger.exception('Erreur cells_data')
+        return jsonify({'draw': int(request.args.get('draw', 1)), 'recordsTotal': 0, 'recordsFiltered': 0, 'data': []}), 500
+
 
 @list_bp.route('/wilayas')
 @login_required
+@admin_required
 def view_wilayas():
     data = list_wilayas()
     column_keys = ['id', 'name', 'region_name']
@@ -348,6 +523,7 @@ def view_wilayas():
 
 @list_bp.route('/communes')
 @login_required
+@admin_required
 def view_communes():
     data = list_communes()
     column_keys = ['id', 'name', 'wilaya_name']
@@ -359,6 +535,7 @@ def view_communes():
 
 @list_bp.route('/antennas')
 @login_required
+@admin_required
 def view_antennas():
     items = Antenna.query.all()
     headers = ['id','Name','Frequency', 'Model', 'V-Tilt', 'H-Tilt', 'gain']
@@ -369,6 +546,7 @@ def view_antennas():
 
 @list_bp.route('/vendors')
 @login_required
+@admin_required
 def view_vendors():
     items = Supplier.query.all()
     headers = ['ID', 'Nom du Vendor']
@@ -379,6 +557,7 @@ def view_vendors():
 
 @list_bp.route('/regions')
 @login_required
+@admin_required
 def view_regions():
     items = Region.query.all()
     headers = ['ID', 'Nom de la Région']

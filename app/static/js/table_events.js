@@ -37,27 +37,30 @@ $(document).ready(function() {
                 { key: 'tilt_mechanical', type: 'text', label: 'Tilt Mechanical' },
                 { key: 'tilt_electrical', type: 'text', label: 'Tilt Electrical' },
                 { key: 'antenna_id', type: 'select', label: 'Antenna', source: '/get_antennas_all' },
-                { key: 'sector_id', type: 'select', label: 'Parent Sector', source: '/get_sectors_all' },
                 { key: 'bsc', type: 'text', label: 'BSC (2G)', tech: ['2G'] },
                 { key: 'lac_2g', type: 'text', label: 'LAC (2G)', tech: ['2G'] },
                 { key: 'rac_2g', type: 'text', label: 'RAC (2G)', tech: ['2G'] },
                 { key: 'bcch', type: 'text', label: 'BCCH (2G)', tech: ['2G'] },
                 { key: 'bsic', type: 'text', label: 'BSIC (2G)', tech: ['2G'] },
+                { key: 'ci_2g', type: 'text', label: 'CI (2G)', tech: ['2G'] },
                 { key: 'lac_3g', type: 'text', label: 'LAC (3G)', tech: ['3G'] },
                 { key: 'rac_3g', type: 'text', label: 'RAC (3G)', tech: ['3G'] },
                 { key: 'psc', type: 'text', label: 'PSC (3G)', tech: ['3G'] },
                 { key: 'rnc', type: 'text', label: 'RNC (3G)', tech: ['3G'] },
                 { key: 'dlarfcn', type: 'text', label: 'DLARFCN (3G)', tech: ['3G'] },
+                { key: 'ci_3g', type: 'text', label: 'CI (3G)', tech: ['3G'] },
                 { key: 'enodeb', type: 'text', label: 'eNodeB (4G)', tech: ['4G'] },
                 { key: 'tac', type: 'text', label: 'TAC (4G)', tech: ['4G'] },
                 { key: 'rsi_4g', type: 'text', label: 'RSI (4G)', tech: ['4G'] },
                 { key: 'pci_4g', type: 'text', label: 'PCI (4G)', tech: ['4G'] },
                 { key: 'earfcn', type: 'text', label: 'EARFCN (4G)', tech: ['4G'] },
+                { key: 'ci_4g', type: 'text', label: 'CI (4G)', tech: ['4G'] },
                 { key: 'gnodeb', type: 'text', label: 'GNODEB (5G)', tech: ['5G'] },
                 { key: 'lac_5g', type: 'text', label: 'LAC (5G)', tech: ['5G'] },
                 { key: 'rsi_5g', type: 'text', label: 'RSI (5G)', tech: ['5G'] },
                 { key: 'pci_5g', type: 'text', label: 'PCI (5G)', tech: ['5G'] },
-                { key: 'arfcn', type: 'text', label: 'ARFCN (5G)', tech: ['5G'] }
+                { key: 'arfcn', type: 'text', label: 'ARFCN (5G)', tech: ['5G'] },
+                { key: 'ci_5g', type: 'text', label: 'CI (5G)', tech: ['5G'] }
             ]
         },
         region: { fields: [{ key: 'name', type: 'text', label: 'Nom de la Region' }] },
@@ -92,6 +95,7 @@ $(document).ready(function() {
                 { key: 'password', type: 'password', label: 'Password' },
                 { key: 'is_admin', type: 'checkbox', label: 'Admin' },
                 { key: 'is_active', type: 'checkbox', label: 'Active', defaultChecked: true },
+                { key: 'region_ids', type: 'multiselect', label: 'Regions', source: '/get_regions' },
                 { key: 'wilaya_ids', type: 'multiselect', label: 'Wilayas', source: '/get_wilayas', bindKey: 'wilaya_id' },
                 { key: 'commune_ids', type: 'multiselect', label: 'Communes', source: '/get_communes_all', dependsOn: 'wilaya_ids', bindKey: 'commune_id' },
                 { key: 'site_ids', type: 'multiselect', label: 'Sites', source: '/get_sites_all', dependsOn: 'wilaya_ids', bindKey: 'site_id' }
@@ -125,32 +129,81 @@ $(document).ready(function() {
         const q = (query || '').trim().toLowerCase();
         $dropdown.find('.multi-option-row').each(function() {
             const txt = ($(this).data('text') || '').toLowerCase();
-            const visible = !q || txt.includes(q);
+            const linkedHidden = String($(this).attr('data-linked-hidden') || '0') === '1';
+            const visible = !linkedHidden && (!q || txt.includes(q));
             $(this).toggle(visible);
         });
     }
 
     function applyUserScopeLinking($scopeRoot) {
+        function setDropdownEnabled(key, enabled) {
+            const $dd = $scopeRoot.find('.multi-check-dropdown[data-key="' + key + '"]');
+            const $toggle = $dd.find('.multi-check-toggle');
+            const $menu = $dd.find('.multi-check-menu');
+            $toggle.prop('disabled', !enabled);
+            $menu.find('.multi-filter-input, .multi-select-all, .multi-deselect-all, .multi-check-item').prop('disabled', !enabled);
+            $dd.toggleClass('opacity-50', !enabled);
+        }
+
+        const selectedRegions = new Set();
+        $scopeRoot.find('.multi-check-dropdown[data-key="region_ids"] .multi-check-item:checked').each(function() {
+            selectedRegions.add(String($(this).val()));
+        });
+
+        const $wilayaDropdown = $scopeRoot.find('.multi-check-dropdown[data-key="wilaya_ids"]');
+        $wilayaDropdown.find('.multi-option-row').each(function() {
+            const itemRegion = String($(this).data('region') || '');
+            const keep = selectedRegions.size === 0 || selectedRegions.has(itemRegion);
+            $(this).attr('data-linked-hidden', keep ? '0' : '1');
+            $(this).toggle(keep);
+            if (!keep) {
+                $(this).find('.multi-check-item').prop('checked', false);
+            }
+        });
+        updateDropdownSummary($wilayaDropdown);
+        setDropdownEnabled('wilaya_ids', selectedRegions.size > 0);
+
         const selectedWilayas = new Set();
         $scopeRoot.find('.multi-check-dropdown[data-key="wilaya_ids"] .multi-check-item:checked').each(function() {
             selectedWilayas.add(String($(this).val()));
         });
 
-        function syncByWilaya(targetKey) {
-            const $target = $scopeRoot.find(`.multi-check-dropdown[data-key="${targetKey}"]`);
+        function syncByWilaya(targetKey, optionalCommuneSet) {
+            const $target = $scopeRoot.find('.multi-check-dropdown[data-key="' + targetKey + '"]');
             $target.find('.multi-option-row').each(function() {
                 const itemWilaya = String($(this).data('wilaya') || '');
-                const keep = selectedWilayas.size === 0 || selectedWilayas.has(itemWilaya);
+                const itemCommune = String($(this).data('commune') || '');
+                const matchWilaya = selectedWilayas.size === 0 || selectedWilayas.has(itemWilaya);
+                const matchCommune = !optionalCommuneSet || optionalCommuneSet.size === 0 || optionalCommuneSet.has(itemCommune);
+                const keep = matchWilaya && matchCommune;
+                $(this).attr('data-linked-hidden', keep ? '0' : '1');
                 $(this).toggle(keep);
-                if (selectedWilayas.size > 0 && selectedWilayas.has(itemWilaya)) {
-                    $(this).find('.multi-check-item').prop('checked', true);
+                if (!keep) {
+                    $(this).find('.multi-check-item').prop('checked', false);
                 }
             });
             updateDropdownSummary($target);
         }
 
         syncByWilaya('commune_ids');
-        syncByWilaya('site_ids');
+        setDropdownEnabled('commune_ids', selectedWilayas.size > 0);
+
+        const selectedCommunes = new Set();
+        $scopeRoot.find('.multi-check-dropdown[data-key="commune_ids"] .multi-check-item:checked').each(function() {
+            selectedCommunes.add(String($(this).val()));
+        });
+
+        // Sites are filtered by Wilaya and Commune selection.
+        syncByWilaya('site_ids', selectedCommunes);
+        setDropdownEnabled('site_ids', selectedCommunes.size > 0);
+
+        // Re-apply each dropdown text filter after linkage filtering.
+        $scopeRoot.find('.multi-check-dropdown').each(function() {
+            const $dd = $(this);
+            const q = $dd.find('.multi-filter-input').val() || '';
+            applyDropdownFilter($dd, q);
+            updateDropdownSummary($dd);
+        });
     }
 
     async function generateFieldHTML(field, currentValue) {
@@ -180,13 +233,15 @@ $(document).ready(function() {
             }
 
             let optionsHtml = '';
+            const selectAllByDefault = !!field.defaultAll && selectedValues.size === 0;
             items.forEach(item => {
                 const value = String(item.id || item);
                 const label = item.label || item.name || String(item);
                 const wilayaId = item.wilaya_id || '';
                 const communeId = item.commune_id || '';
-                const checked = selectedValues.has(value) ? 'checked' : '';
-                optionsHtml += `<div class="form-check multi-option-row" data-text="${label.replace(/"/g, '&quot;')}" data-wilaya="${wilayaId}" data-commune="${communeId}">
+                const regionId = item.region_id || '';
+                const checked = (selectedValues.has(value) || selectAllByDefault) ? 'checked' : '';
+                optionsHtml += `<div class="form-check multi-option-row" data-linked-hidden="0" data-text="${label.replace(/"/g, '&quot;')}" data-region="${regionId}" data-wilaya="${wilayaId}" data-commune="${communeId}">
                     <input class="form-check-input multi-check-item" type="checkbox" name="${field.key}" value="${value}" ${checked}>
                     <label class="form-check-label">${label}</label>
                 </div>`;
@@ -201,6 +256,10 @@ $(document).ready(function() {
                     </button>
                     <div class="dropdown-menu p-2 multi-check-menu w-100">
                         <input type="text" class="form-control form-control-sm mb-2 multi-filter-input" placeholder="Filter...">
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="button" class="btn btn-outline-primary btn-sm multi-select-all">Select all</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm multi-deselect-all">Deselect all</button>
+                        </div>
                         <div class="multi-options">${optionsHtml}</div>
                     </div>
                 </div>
@@ -283,6 +342,29 @@ $(document).ready(function() {
 
         $container.find('.multi-check-item').off('change.multicheck').on('change.multicheck', function() {
             const $dropdown = $(this).closest('.multi-check-dropdown');
+            updateDropdownSummary($dropdown);
+            applyUserScopeLinking($container);
+        });
+
+        // Keep dropdown open while interacting with checkboxes/actions/filters.
+        $container.find('.multi-check-menu').off('click.multimenu').on('click.multimenu', function(e) {
+            e.stopPropagation();
+        });
+
+        $container.find('.multi-select-all').off('click.multiselectall').on('click.multiselectall', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $dropdown = $(this).closest('.multi-check-dropdown');
+            $dropdown.find('.multi-option-row:visible .multi-check-item').prop('checked', true);
+            updateDropdownSummary($dropdown);
+            applyUserScopeLinking($container);
+        });
+
+        $container.find('.multi-deselect-all').off('click.multideselectall').on('click.multideselectall', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $dropdown = $(this).closest('.multi-check-dropdown');
+            $dropdown.find('.multi-option-row:visible .multi-check-item').prop('checked', false);
             updateDropdownSummary($dropdown);
             applyUserScopeLinking($container);
         });
@@ -377,6 +459,109 @@ $(document).ready(function() {
         });
     }
 
+    let kmlFilterCache = null;
+    function initKmlFilters(prefix) {
+        const p = String(prefix || '').trim();
+        if (!p) return;
+        const $region = $(`#kml${p}Region`);
+        const $wilaya = $(`#kml${p}Wilaya`);
+        const $commune = $(`#kml${p}Commune`);
+        const $site = $(`#kml${p}${p === 'Site' ? 'Code' : 'Site'}`);
+        if (!$region.length || !$wilaya.length || !$commune.length || !$site.length) return;
+
+        const loadData = kmlFilterCache
+            ? Promise.resolve(kmlFilterCache)
+            : Promise.all([
+                fetch('/get_regions').then(r => r.json()).catch(() => []),
+                fetch('/get_wilayas').then(r => r.json()).catch(() => []),
+                fetch('/get_communes_all').then(r => r.json()).catch(() => []),
+                fetch('/get_sites_all').then(r => r.json()).catch(() => [])
+            ]).then(function(results) {
+                kmlFilterCache = {
+                    regions: Array.isArray(results[0]) ? results[0] : [],
+                    wilayas: Array.isArray(results[1]) ? results[1] : [],
+                    communes: Array.isArray(results[2]) ? results[2] : [],
+                    sites: Array.isArray(results[3]) ? results[3] : []
+                };
+                return kmlFilterCache;
+            });
+
+        loadData.then(function(data) {
+            const regions = data.regions;
+            const wilayas = data.wilayas;
+            const communes = data.communes;
+            const sites = data.sites;
+            const wilayaToRegion = {};
+            wilayas.forEach(function(w) {
+                wilayaToRegion[String(w.id)] = String(w.region_id || '');
+            });
+
+            function renderRegions() {
+                $region.empty().append('<option value="">All Regions</option>');
+                regions.forEach(function(r) {
+                    $region.append(`<option value="${r.id}">${r.name || r.label || r.id}</option>`);
+                });
+            }
+
+            function renderWilayas(regionId) {
+                $wilaya.empty().append('<option value="">All Wilayas</option>');
+                wilayas.forEach(function(w) {
+                    const keep = !regionId || String(w.region_id || '') === String(regionId);
+                    if (keep) $wilaya.append(`<option value="${w.id}">${w.label || w.name || w.id}</option>`);
+                });
+            }
+
+            function renderCommunes(wilayaId) {
+                $commune.empty().append('<option value="">All Communes</option>');
+                communes.forEach(function(c) {
+                    const keep = !wilayaId || String(c.wilaya_id || '') === String(wilayaId);
+                    if (keep) $commune.append(`<option value="${c.id}">${c.name || c.id}</option>`);
+                });
+            }
+
+            function renderSites(communeId, wilayaId, regionId) {
+                $site.empty().append('<option value="">All Sites</option>');
+                sites.forEach(function(s) {
+                    const byCommune = !communeId || String(s.commune_id || '') === String(communeId);
+                    const byWilaya = !wilayaId || String(s.wilaya_id || '') === String(wilayaId);
+                    const byRegion = !regionId || String(wilayaToRegion[String(s.wilaya_id || '')] || '') === String(regionId);
+                    if (byCommune && byWilaya && byRegion) {
+                        $site.append(`<option value="${s.id}">${s.label || s.name || s.id}</option>`);
+                    }
+                });
+            }
+
+            renderRegions();
+            renderWilayas('');
+            renderCommunes('');
+            renderSites('', '', '');
+
+            $region.off(`change.kml${p}`).on(`change.kml${p}`, function() {
+                const regionId = String($(this).val() || '');
+                renderWilayas(regionId);
+                renderCommunes('');
+                renderSites('', '', regionId);
+                $wilaya.val('');
+                $commune.val('');
+            });
+
+            $wilaya.off(`change.kml${p}`).on(`change.kml${p}`, function() {
+                const wilayaId = String($(this).val() || '');
+                const regionId = String($region.val() || '');
+                renderCommunes(wilayaId);
+                renderSites('', wilayaId, regionId);
+                $commune.val('');
+            });
+
+            $commune.off(`change.kml${p}`).on(`change.kml${p}`, function() {
+                const communeId = String($(this).val() || '');
+                const wilayaId = String($wilaya.val() || '');
+                const regionId = String($region.val() || '');
+                renderSites(communeId, wilayaId, regionId);
+            });
+        });
+    }
+
     function collectUserPayload($form) {
         return {
             id: Number($form.find('input[name="id"]').val()),
@@ -384,6 +569,7 @@ $(document).ready(function() {
             password: $form.find('input[name="password"]').val() || '',
             is_admin: $form.find('input[name="is_admin"]').is(':checked'),
             is_active: $form.find('input[name="is_active"]').is(':checked'),
+            region_ids: $form.find('input[name="region_ids"]:checked').map(function() { return $(this).val(); }).get(),
             wilaya_ids: $form.find('input[name="wilaya_ids"]:checked').map(function() { return $(this).val(); }).get(),
             commune_ids: $form.find('input[name="commune_ids"]:checked').map(function() { return $(this).val(); }).get(),
             site_ids: $form.find('input[name="site_ids"]:checked').map(function() { return $(this).val(); }).get()
@@ -882,40 +1068,272 @@ $(document).ready(function() {
         if (id) window.location.href = `/generate_d4b/${id}`;
     });
 
+    function pollCellSectorSyncStatus(statusUrl, $btn, baseHtml) {
+        fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || data.success === false) {
+                    throw new Error((data && data.message) || 'Sync status error');
+                }
+
+                const status = String(data.status || '').toLowerCase();
+                const progress = Number(data.progress || 0);
+                const total = Number(data.total || 0);
+                const processed = Number(data.processed || 0);
+
+                if (status === 'completed' || status === 'failed') {
+                    $btn.prop('disabled', false).html(baseHtml);
+                    if (status === 'completed') {
+                        showToast(data.message || `Sync done (${processed}/${total}).`, 'success');
+                    } else {
+                        showToast(data.message || 'Cell/Sector sync failed.', 'danger');
+                    }
+                    return;
+                }
+
+                $btn.html(`<span class="spinner-border spinner-border-sm"></span>`);
+                setTimeout(() => pollCellSectorSyncStatus(statusUrl, $btn, baseHtml), 1200);
+            })
+            .catch((err) => {
+                $btn.prop('disabled', false).html(baseHtml);
+                showToast(err.message || 'Unable to poll sync status.', 'danger');
+            });
+    }
+
+    $(document).on('click', '#syncCellSectorBtn', function() {
+        const $btn = $(this);
+        const baseHtml = $btn.html();
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+
+        let searchValue = '';
+        let visibleCellNames = [];
+        try {
+            const table = $('.dataTable').DataTable();
+            searchValue = String((table.search && table.search()) || '').trim();
+            const visibleRows = table.rows({ search: 'applied', page: 'current' }).data().toArray();
+            visibleCellNames = visibleRows
+                .map(row => String((row && row[2]) || '').trim())
+                .filter(Boolean);
+        } catch (e) {
+            visibleCellNames = [];
+            searchValue = '';
+        }
+
+        const payload = new URLSearchParams();
+        payload.set('scope', 'filtered');
+        payload.set('search', searchValue);
+        for (const cellName of visibleCellNames) {
+            payload.append('prioritized_cells', cellName);
+        }
+
+        fetch('/sync-cell-sectors', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRF-Token': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload.toString()
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.success || !data.status_url) {
+                throw new Error((data && data.message) || 'Unable to start sync.');
+            }
+            pollCellSectorSyncStatus(data.status_url, $btn, baseHtml);
+        })
+        .catch((err) => {
+            $btn.prop('disabled', false).html(baseHtml);
+            showToast(err.message || 'Cell/Sector sync launch error.', 'danger');
+        });
+    });
+
+    function pollSiteAltitudeSyncStatus(statusUrl, $btn, baseHtml) {
+        fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || data.success === false) {
+                    throw new Error((data && data.message) || 'Sync status error');
+                }
+
+                const status = String(data.status || '').toLowerCase();
+                const total = Number(data.total || 0);
+                const processed = Number(data.processed || 0);
+
+                if (status === 'completed' || status === 'failed') {
+                    $btn.prop('disabled', false).html(baseHtml);
+                    if (status === 'completed') {
+                        showToast(data.message || `Altitude sync done (${processed}/${total}).`, 'success');
+                        setTimeout(() => location.reload(), 700);
+                    } else {
+                        showToast(data.message || 'Site altitude sync failed.', 'danger');
+                    }
+                    return;
+                }
+
+                $btn.html('<span class="spinner-border spinner-border-sm"></span>');
+                setTimeout(() => pollSiteAltitudeSyncStatus(statusUrl, $btn, baseHtml), 1200);
+            })
+            .catch((err) => {
+                $btn.prop('disabled', false).html(baseHtml);
+                showToast(err.message || 'Unable to poll altitude sync status.', 'danger');
+            });
+    }
+
+    $(document).on('click', '#syncSiteAltitudeBtn', function() {
+        const $btn = $(this);
+        const baseHtml = $btn.html();
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+
+        let searchValue = '';
+        let visibleSiteIds = [];
+        try {
+            const table = $('.dataTable').DataTable();
+            searchValue = String((table.search && table.search()) || '').trim();
+            const visibleRows = table.rows({ search: 'applied', page: 'current' }).data().toArray();
+            visibleSiteIds = visibleRows
+                .map(row => {
+                    const raw = String((row && row[1]) || '').trim();
+                    const clean = ($($.parseHTML(raw)).text() || raw).trim();
+                    const idNum = Number(clean);
+                    return Number.isFinite(idNum) ? idNum : null;
+                })
+                .filter(v => v !== null);
+        } catch (e) {
+            visibleSiteIds = [];
+            searchValue = '';
+        }
+
+        const payload = new URLSearchParams();
+        payload.set('scope', 'filtered');
+        payload.set('search', searchValue);
+        for (const siteId of visibleSiteIds) {
+            payload.append('prioritized_sites', String(siteId));
+        }
+
+        fetch('/sync-site-altitudes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRF-Token': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload.toString()
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.success || !data.status_url) {
+                throw new Error((data && data.message) || 'Unable to start site altitude sync.');
+            }
+            pollSiteAltitudeSyncStatus(data.status_url, $btn, baseHtml);
+        })
+        .catch((err) => {
+            $btn.prop('disabled', false).html(baseHtml);
+            showToast(err.message || 'Site altitude sync launch error.', 'danger');
+        });
+    });
+
     $(document).on('click', '.open-site-kml-modal', function() {
         const target = $(this).data('target-url') || '/export_kml/sites';
         $('#kmlSiteTarget').val(target);
+        initKmlFilters('Site');
         new bootstrap.Modal(document.getElementById('kmlSiteModal')).show();
     });
 
     $(document).on('submit', '#kmlSiteForm', function(e) {
         e.preventDefault();
-        const target = ($('#kmlSiteTarget').val() || '/export_kml/sites').trim();
         const siteIcon = ($('input[name="site_icon"]:checked', this).val() || 'tower').trim();
         const siteIconScale = parseFloat($('#siteIconScale').val());
         if (!Number.isFinite(siteIconScale) || siteIconScale < 0.8 || siteIconScale > 1.8) {
             showToast('Icon scale must be between 0.8 and 1.8.', 'warning');
             return;
         }
-        const query = new URLSearchParams({
+        const $submit = $('#kmlSiteSubmitBtn');
+        const $wrap = $('#kmlSiteProgressWrap');
+        const $bar = $('#kmlSiteProgressBar');
+        const $txt = $('#kmlSiteProgressText');
+        const $pct = $('#kmlSiteProgressPct');
+
+        $wrap.removeClass('d-none');
+        $submit.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>Generating...');
+
+        const payload = new URLSearchParams({
             site_icon: siteIcon,
-            site_icon_scale: String(siteIconScale)
+            site_icon_scale: String(siteIconScale),
+            region_id: ($('#kmlSiteRegion').val() || '').trim(),
+            wilaya_id: ($('#kmlSiteWilaya').val() || '').trim(),
+            commune_id: ($('#kmlSiteCommune').val() || '').trim(),
+            site_id: ($('#kmlSiteCode').val() || '').trim()
         });
-        bootstrap.Modal.getInstance(document.getElementById('kmlSiteModal')).hide();
-        window.location.href = `${target}?${query.toString()}`;
+
+        const poll = function(statusUrl, downloadUrl) {
+            fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data || data.success === false) {
+                        throw new Error((data && data.message) || 'KML status error');
+                    }
+                    const progress = Number(data.progress || 0);
+                    $bar.css('width', `${progress}%`);
+                    $pct.text(`${progress}%`);
+                    $txt.text(data.message || 'Processing...');
+
+                    const status = String(data.status || '').toLowerCase();
+                    if (status === 'completed') {
+                        window.location.href = (data.download_url || downloadUrl);
+                        $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+                        setTimeout(() => {
+                            bootstrap.Modal.getInstance(document.getElementById('kmlSiteModal')).hide();
+                            $wrap.addClass('d-none');
+                            $bar.css('width', '0%');
+                            $pct.text('0%');
+                        }, 400);
+                        return;
+                    }
+                    if (status === 'failed') {
+                        throw new Error(data.message || 'KML export failed');
+                    }
+                    setTimeout(() => poll(statusUrl, downloadUrl), 1200);
+                })
+                .catch(err => {
+                    showToast(err.message || 'Site KML export error', 'danger');
+                    $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+                });
+        };
+
+        fetch('/export_kml/sites/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRF-Token': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload.toString()
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.success || !data.status_url) {
+                throw new Error((data && data.message) || 'Unable to start site KML export');
+            }
+            poll(data.status_url, data.download_url || '');
+        })
+        .catch(err => {
+            showToast(err.message || 'Unable to start site KML export', 'danger');
+            $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+        });
     });
 
     $(document).on('click', '.open-sector-kml-modal', function() {
         const target = $(this).data('target-url') || '/export_kml/sectors';
         $('#kmlSectorTarget').val(target);
         $('#kmlBeamTitle').text('Sector Beam Export');
+        initKmlFilters('Sector');
         new bootstrap.Modal(document.getElementById('kmlSectorModal')).show();
     });
 
     $(document).on('submit', '#kmlSectorForm', function(e) {
         e.preventDefault();
 
-        const target = ($('#kmlSectorTarget').val() || '/export_kml/sectors').trim();
         const beamLength = parseFloat($('#beamLengthKm').val());
         const beamWidth = parseFloat($('#beamWidthDeg').val());
         const beamColor = ($('#beamColor').val() || '#0055ff').trim();
@@ -929,14 +1347,79 @@ $(document).ready(function() {
             return;
         }
 
-        const query = new URLSearchParams({
+        const payload = new URLSearchParams({
             beam_length_km: String(beamLength),
             beam_width_deg: String(beamWidth),
-            beam_color: beamColor
+            beam_color: beamColor,
+            region_id: ($('#kmlSectorRegion').val() || '').trim(),
+            wilaya_id: ($('#kmlSectorWilaya').val() || '').trim(),
+            commune_id: ($('#kmlSectorCommune').val() || '').trim(),
+            site_id: ($('#kmlSectorSite').val() || '').trim()
         });
 
-        bootstrap.Modal.getInstance(document.getElementById('kmlSectorModal')).hide();
-        window.location.href = `${target}?${query.toString()}`;
+        const $submit = $('#kmlSectorSubmitBtn');
+        const $wrap = $('#kmlSectorProgressWrap');
+        const $bar = $('#kmlSectorProgressBar');
+        const $txt = $('#kmlSectorProgressText');
+        const $pct = $('#kmlSectorProgressPct');
+        $wrap.removeClass('d-none');
+        $submit.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>Generating...');
+
+        const poll = function(statusUrl, downloadUrl) {
+            fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data || data.success === false) {
+                        throw new Error((data && data.message) || 'KML status error');
+                    }
+                    const progress = Number(data.progress || 0);
+                    $bar.css('width', `${progress}%`);
+                    $pct.text(`${progress}%`);
+                    $txt.text(data.message || 'Processing...');
+
+                    const status = String(data.status || '').toLowerCase();
+                    if (status === 'completed') {
+                        window.location.href = (data.download_url || downloadUrl);
+                        $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+                        setTimeout(() => {
+                            bootstrap.Modal.getInstance(document.getElementById('kmlSectorModal')).hide();
+                            $wrap.addClass('d-none');
+                            $bar.css('width', '0%');
+                            $pct.text('0%');
+                        }, 400);
+                        return;
+                    }
+                    if (status === 'failed') {
+                        throw new Error(data.message || 'KML export failed');
+                    }
+                    setTimeout(() => poll(statusUrl, downloadUrl), 1200);
+                })
+                .catch(err => {
+                    showToast(err.message || 'Sector KML export error', 'danger');
+                    $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+                });
+        };
+
+        fetch('/export_kml/sectors/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRF-Token': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload.toString()
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.success || !data.status_url) {
+                throw new Error((data && data.message) || 'Unable to start sector KML export');
+            }
+            poll(data.status_url, data.download_url || '');
+        })
+        .catch(err => {
+            showToast(err.message || 'Unable to start sector KML export', 'danger');
+            $submit.prop('disabled', false).html('<i class="bi bi-download me-1"></i>Export KML');
+        });
     });
 
     $(document).on('click', '.btn-import-direct', function() {

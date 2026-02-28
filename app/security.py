@@ -1,9 +1,88 @@
 import hmac
 import secrets
+import json
+from datetime import datetime
 from functools import wraps
+from pathlib import Path
 
-from flask import flash, jsonify, redirect, request, session, url_for
+from flask import current_app, flash, jsonify, redirect, request, session, url_for
 from flask_login import current_user
+
+
+def _safe_relation_ids(user_obj, relation_name):
+    # Keep app usable when a new relation table exists in code but not yet in DB.
+    try:
+        return {obj.id for obj in getattr(user_obj, relation_name, [])}
+    except Exception:
+        return set()
+
+
+def append_audit_event(action, entity, status="SUCCESS", message="", username_override=None):
+    # Write lightweight user audit events to instance/audit_events.json.
+    try:
+        username = username_override
+        if not username:
+            username = (
+                getattr(current_user, "username", None)
+                if getattr(current_user, "is_authenticated", False)
+                else "anonymous"
+            )
+        reports_dir = Path(current_app.instance_path) / "import_reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        out_path = reports_dir / "audit_events.json"
+        index_path = reports_dir / "import_reports_index.json"
+        now_iso = datetime.utcnow().isoformat()
+        safe_action = str(action or "").strip().lower()
+        safe_entity = str(entity or "").strip().lower()
+        safe_status = str(status or "SUCCESS").strip().upper()
+        safe_message = str(message or "")
+        safe_username = str(username or "unknown")
+        rows = []
+        if out_path.exists():
+            try:
+                rows = json.loads(out_path.read_text(encoding="utf-8"))
+            except Exception:
+                rows = []
+        rows.append(
+            {
+                "created_at": now_iso,
+                "username": safe_username,
+                "action": safe_action,
+                "entity": safe_entity,
+                "status": safe_status,
+                "message": safe_message,
+            }
+        )
+        rows = rows[-5000:]
+        out_path.write_text(json.dumps(rows, ensure_ascii=True, indent=2), encoding="utf-8")
+
+        # Also append as generic admin log entry so it appears in Administration > Import Logs.
+        idx_rows = []
+        if index_path.exists():
+            try:
+                idx_rows = json.loads(index_path.read_text(encoding="utf-8"))
+            except Exception:
+                idx_rows = []
+        idx_rows.append(
+            {
+                "id": f"audit_{safe_action}_{int(datetime.utcnow().timestamp() * 1000)}",
+                "created_at": now_iso,
+                "entity": safe_entity or "system",
+                "import_kind": safe_action,
+                "source_file": "",
+                "status": safe_status,
+                "message": safe_message,
+                "failed_rows_count": 0,
+                "report_path": "",
+                "log_source": "audit",
+                "username": safe_username,
+            }
+        )
+        idx_rows = idx_rows[-10000:]
+        index_path.write_text(json.dumps(idx_rows, ensure_ascii=True, indent=2), encoding="utf-8")
+    except Exception:
+        # Audit logging must never break business flow.
+        pass
 
 
 def generate_csrf_token():
@@ -34,9 +113,9 @@ def get_accessible_commune_ids():
     if is_admin_user():
         return None
 
-    commune_ids = {c.id for c in getattr(current_user, "assigned_communes", [])}
-    wilaya_ids = {w.id for w in getattr(current_user, "assigned_wilayas", [])}
-    site_ids = {s.id for s in getattr(current_user, "assigned_sites", [])}
+    commune_ids = _safe_relation_ids(current_user, "assigned_communes")
+    wilaya_ids = _safe_relation_ids(current_user, "assigned_wilayas")
+    site_ids = _safe_relation_ids(current_user, "assigned_sites")
 
     if wilaya_ids:
         from app import db
@@ -64,7 +143,7 @@ def get_accessible_site_ids():
     from app import db
     from app.models import Site
 
-    site_ids = {s.id for s in getattr(current_user, "assigned_sites", [])}
+    site_ids = _safe_relation_ids(current_user, "assigned_sites")
     commune_ids = get_accessible_commune_ids() or set()
 
     if commune_ids:

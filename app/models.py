@@ -12,6 +12,12 @@ user_wilaya = db.Table(
     db.Column("wilaya_id", db.Integer, db.ForeignKey("wilaya.id", ondelete="CASCADE"), primary_key=True),
 )
 
+user_region = db.Table(
+    "user_region",
+    db.Column("user_id", db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
+    db.Column("region_id", db.Integer, db.ForeignKey("region.id", ondelete="CASCADE"), primary_key=True),
+)
+
 user_commune = db.Table(
     "user_commune",
     db.Column("user_id", db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
@@ -34,6 +40,12 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    assigned_regions = db.relationship(
+        "Region",
+        secondary=user_region,
+        lazy="select",
+        backref=db.backref("assigned_users", lazy="dynamic"),
+    )
     assigned_wilayas = db.relationship(
         "Wilaya",
         secondary=user_wilaya,
@@ -167,6 +179,7 @@ class Cell2G(db.Model):
     rac = db.Column(db.String(50), nullable=True)
     bcch = db.Column(db.Integer, nullable=True)
     bsic = db.Column(db.String(20), nullable=True)
+    ci = db.Column(db.Integer, nullable=True)
 
     cell = db.relationship('Cell', back_populates='profile_2g')
 
@@ -180,6 +193,7 @@ class Cell3G(db.Model):
     psc = db.Column(db.Integer, nullable=True)
     rnc = db.Column(db.String(80), nullable=True)
     dlarfcn = db.Column(db.String(50), nullable=True)
+    ci = db.Column(db.Integer, nullable=True)
 
     cell = db.relationship('Cell', back_populates='profile_3g')
 
@@ -193,6 +207,7 @@ class Cell4G(db.Model):
     rsi = db.Column(db.String(50), nullable=True)
     pci = db.Column(db.Integer, nullable=True)
     earfcn = db.Column(db.String(50), nullable=True)
+    ci = db.Column(db.Integer, nullable=True)
 
     cell = db.relationship('Cell', back_populates='profile_4g')
 
@@ -206,6 +221,7 @@ class Cell5G(db.Model):
     rsi = db.Column(db.String(50), nullable=True)
     pci = db.Column(db.Integer, nullable=True)
     arfcn = db.Column(db.String(50), nullable=True)
+    ci = db.Column(db.Integer, nullable=True)
 
     cell = db.relationship('Cell', back_populates='profile_5g')
 

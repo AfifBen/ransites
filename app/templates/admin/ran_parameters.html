@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}RAN Parameters{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 class="mb-1">RAN Parameters</h2>
+        <p class="lead">Reference table used by LBS export: Cell Radius and BSNominalPower by technology and band.</p>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="m-0">Reference Table</h5>
+        <button type="button" class="btn btn-outline-light btn-sm" id="addRowBtn">
+            <i class="bi bi-plus me-1"></i>Add Row
+        </button>
+    </div>
+    <div class="card-body">
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle" id="ranRefTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 120px;">Tech</th>
+                            <th style="width: 140px;">Band (MHz)</th>
+                            <th style="width: 180px;">Cell Radius (km)</th>
+                            <th style="width: 220px;">BSNominalPower (dBm)</th>
+                            <th style="width: 90px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr>
+                            <td><input class="form-control" name="tech[]" value="{{ r.tech }}" required></td>
+                            <td><input class="form-control" name="band[]" type="number" step="1" value="{{ r.band }}" required></td>
+                            <td><input class="form-control" name="cell_radius_km[]" type="number" step="0.1" value="{{ r.cell_radius_km }}" required></td>
+                            <td><input class="form-control" name="bs_nominal_power_dbm[]" type="number" step="0.1" value="{{ r.bs_nominal_power_dbm }}" required></td>
+                            <td><button type="button" class="btn btn-sm btn-outline-danger remove-row">Delete</button></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i>Save Parameters
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block init_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const tableBody = document.querySelector('#ranRefTable tbody');
+    const addBtn = document.getElementById('addRowBtn');
+
+    function bindRemove(btn) {
+        btn.addEventListener('click', function () {
+            const row = btn.closest('tr');
+            if (row) row.remove();
+        });
+    }
+
+    document.querySelectorAll('.remove-row').forEach(bindRemove);
+
+    addBtn.addEventListener('click', function () {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input class="form-control" name="tech[]" value="4G" required></td>
+            <td><input class="form-control" name="band[]" type="number" step="1" value="" required></td>
+            <td><input class="form-control" name="cell_radius_km[]" type="number" step="0.1" value="" required></td>
+            <td><input class="form-control" name="bs_nominal_power_dbm[]" type="number" step="0.1" value="" required></td>
+            <td><button type="button" class="btn btn-sm btn-outline-danger remove-row">Delete</button></td>
+        `;
+        tableBody.appendChild(tr);
+        bindRemove(tr.querySelector('.remove-row'));
+    });
+});
+</script>
+{% endblock %}

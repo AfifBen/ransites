@@ -10,6 +10,9 @@
     <div>
         <h2 class="mb-1">Network Dashboard</h2>
         <p class="lead">Operational snapshot of inventory, technology mix and data quality.</p>
+        {% if dashboard.scope_badge %}
+        <span class="badge rounded-pill text-bg-secondary">{{ dashboard.scope_badge }}</span>
+        {% endif %}
     </div>
     <div class="text-muted small">
         Updated: {{ dashboard.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}
@@ -87,24 +90,44 @@
             </div>
             <div class="card-body">
                 <div class="dashboard-issue-row">
-                    <span>Sites without sectors</span>
-                    <span class="badge bg-danger-subtle text-danger-emphasis">{{ dq.sites_without_sectors }}</span>
+                    <a href="{{ url_for('list_bp.view_sites', dq_filter='without_sectors') }}" class="text-decoration-none">
+                        Sites without sectors
+                    </a>
+                    <a href="{{ url_for('list_bp.view_sites', dq_filter='without_sectors') }}" class="text-decoration-none fw-semibold">
+                        {{ dq.sites_without_sectors }}
+                    </a>
                 </div>
                 <div class="dashboard-issue-row">
-                    <span>Sectors without cells</span>
-                    <span class="badge bg-warning-subtle text-warning-emphasis">{{ dq.sectors_without_cells }}</span>
+                    <a href="{{ url_for('list_bp.view_sectors', dq_filter='without_cells') }}" class="text-decoration-none">
+                        Sectors without cells
+                    </a>
+                    <a href="{{ url_for('list_bp.view_sectors', dq_filter='without_cells') }}" class="text-decoration-none fw-semibold">
+                        {{ dq.sectors_without_cells }}
+                    </a>
                 </div>
                 <div class="dashboard-issue-row">
-                    <span>Cells without sector</span>
-                    <span class="badge bg-danger-subtle text-danger-emphasis">{{ dq.cells_without_sector }}</span>
+                    <a href="{{ url_for('list_bp.view_cells', dq_filter='without_sector') }}" class="text-decoration-none">
+                        Cells without sector
+                    </a>
+                    <a href="{{ url_for('list_bp.view_cells', dq_filter='without_sector') }}" class="text-decoration-none fw-semibold">
+                        {{ dq.cells_without_sector }}
+                    </a>
                 </div>
                 <div class="dashboard-issue-row">
-                    <span>Cells without antenna</span>
-                    <span class="badge bg-warning-subtle text-warning-emphasis">{{ dq.cells_without_antenna }}</span>
+                    <a href="{{ url_for('list_bp.view_cells', dq_filter='without_antenna') }}" class="text-decoration-none">
+                        Cells without antenna
+                    </a>
+                    <a href="{{ url_for('list_bp.view_cells', dq_filter='without_antenna') }}" class="text-decoration-none fw-semibold">
+                        {{ dq.cells_without_antenna }}
+                    </a>
                 </div>
                 <div class="dashboard-issue-row mb-0">
-                    <span>Sites without vendor</span>
-                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ dq.sites_without_supplier }}</span>
+                    <a href="{{ url_for('list_bp.view_sites', dq_filter='without_vendor') }}" class="text-decoration-none">
+                        Sites without vendor
+                    </a>
+                    <a href="{{ url_for('list_bp.view_sites', dq_filter='without_vendor') }}" class="text-decoration-none fw-semibold">
+                        {{ dq.sites_without_supplier }}
+                    </a>
                 </div>
             </div>
             <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">

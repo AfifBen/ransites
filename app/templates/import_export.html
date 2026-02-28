@@ -19,7 +19,11 @@
             </div>
             <div class="card-body d-flex flex-column">
                 <p class="text-muted small mb-3">{{ help_text }}</p>
-                <form action="{{ url_for('import_bp.import_data', entity=entity_name) }}" method="POST" enctype="multipart/form-data" class="mt-auto">
+                <form action="{{ url_for('import_bp.import_data', entity=entity_name) }}"
+                      method="POST"
+                      enctype="multipart/form-data"
+                      class="mt-auto"
+                      {% if entity_name == 'cells' %}data-fpall-start-url="{{ url_for('import_bp.start_fpall_import') }}"{% endif %}>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <div class="mb-3">
@@ -31,13 +35,41 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-upload me-1"></i> Import
                         </button>
+                        {% if entity_name == 'cells' %}
+                        <button type="submit" name="import_mode" value="fpall" class="btn btn-outline-success fpall-import-btn">
+                            <i class="bi bi-file-earmark-medical me-1"></i> Import FPall
+                        </button>
+                        {% endif %}
                         <a href="{{ url_for('main.download_import_template', entity=entity_name) }}" class="btn btn-outline-secondary">
                             <i class="bi bi-file-earmark-spreadsheet me-1"></i> Template
                         </a>
                         <a href="{{ url_for('main.export_data', entity=entity_name) }}" class="btn btn-outline-primary">
                             <i class="bi bi-download me-1"></i> Export
                         </a>
+                        {% if entity_name in ['sites', 'sectors', 'cells'] %}
+                        <a href="{{ url_for('import_bp.latest_entity_import_report', entity=entity_name) }}" class="btn btn-outline-success">
+                            <i class="bi bi-file-earmark-check me-1"></i> Last Report
+                        </a>
+                        {% endif %}
                     </div>
+
+                    {% if entity_name == 'cells' %}
+                    <div id="fpallProgressWrap_{{ entity_name }}" class="w-100 mt-3 d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <small class="text-muted fw-semibold">FPall Import Progress</small>
+                            <small id="fpallProgressPct_{{ entity_name }}" class="text-muted">0%</small>
+                        </div>
+                        <div class="progress" role="progressbar" aria-label="FPall Import">
+                            <div id="fpallProgressBar_{{ entity_name }}" class="progress-bar progress-bar-striped progress-bar-animated"
+                                 style="width: 0%"></div>
+                        </div>
+                        <small id="fpallProgressStatus_{{ entity_name }}" class="text-muted mt-1 d-block">Waiting...</small>
+                        <small id="fpallProgressMeta_{{ entity_name }}" class="text-muted d-block">Processed 0 / 0 | ETA --:-- | Elapsed 00:00</small>
+                        <a id="fpallReportLink_{{ entity_name }}" class="btn btn-sm btn-outline-primary mt-2 d-none" href="#" target="_blank" rel="noopener">
+                            <i class="bi bi-file-earmark-check me-1"></i>Download Final Report
+                        </a>
+                    </div>
+                    {% endif %}
                 </form>
             </div>
         </div>
@@ -53,5 +85,227 @@
     {{ render_import_export_card('Regions', 'bg-dark', 'regions', 'Geographic reference at region level.') }}
     {{ render_import_export_card('Wilayas', 'bg-dark', 'wilayas', 'Geographic reference at wilaya level.') }}
     {{ render_import_export_card('Communes', 'bg-dark', 'communes', 'Geographic reference at commune level.') }}
+
+    <div class="col-12 col-lg-6">
+        <div class="card shadow-sm tool-card h-100">
+            <div class="card-header text-white bg-dark d-flex align-items-center">
+                <i class="bi bi-arrow-repeat me-2"></i>
+                <h5 class="m-0">Cell / Sector Sync</h5>
+            </div>
+            <div class="card-body d-flex flex-column">
+                <p class="text-muted small mb-3">Recompute sector assignment for existing cells from mapping (cellname + tech + band).</p>
+                <form action="{{ url_for('main.sync_cell_sectors') }}" method="POST" enctype="multipart/form-data" class="mt-auto">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2">
+                        <label class="form-label">Scope</label>
+                        <select class="form-select" name="scope">
+                            <option value="list">Only listed cells</option>
+                            <option value="all">All cells</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Cell file (.xlsx/.csv, optional)</label>
+                        <input class="form-control" type="file" name="cell_file" accept=".xlsx,.csv">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cell list (optional)</label>
+                        <textarea name="cell_list" class="form-control" rows="3" placeholder="Example: 4C07X073_4, 3C19X496_3"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i class="bi bi-arrow-repeat me-1"></i> Sync Cell Sectors
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block init_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
+    function setFormEnabled(form, enabled) {
+        Array.from(form.querySelectorAll('button, input, a')).forEach(function (el) {
+            if (el.tagName === 'A') return;
+            el.disabled = !enabled;
+        });
+    }
+
+    function pollFpallStatus(statusUrl, ui, form) {
+        const bar = ui.bar;
+        const pct = ui.pct;
+        const status = ui.status;
+        const meta = ui.meta;
+        const reportLink = ui.reportLink;
+
+        function formatEta(totalSeconds) {
+            const sec = Number(totalSeconds);
+            if (!Number.isFinite(sec) || sec < 0) return '--:--';
+            const minutes = Math.floor(sec / 60);
+            const seconds = Math.floor(sec % 60);
+            return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        }
+
+        function formatElapsed(totalSeconds) {
+            const sec = Number(totalSeconds);
+            if (!Number.isFinite(sec) || sec < 0) return '00:00';
+            const hours = Math.floor(sec / 3600);
+            const minutes = Math.floor((sec % 3600) / 60);
+            const seconds = Math.floor(sec % 60);
+            if (hours > 0) {
+                return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+            }
+            return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        }
+
+        const tick = function () {
+            fetch(statusUrl, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+                .then(function (res) {
+                    if (!res.ok || !res.data || !res.data.success) {
+                        throw new Error((res.data && res.data.message) || 'Unable to read FPall status.');
+                    }
+
+                    const progress = Math.max(1, Math.min(100, Number(res.data.progress || 0)));
+                    bar.style.width = progress + '%';
+                    pct.textContent = progress + '%';
+                    status.textContent = res.data.message || 'Processing...';
+                    const processedRows = Number(res.data.processed_rows || 0);
+                    const totalRows = Number(res.data.total_rows || 0);
+                    const shownPct = totalRows > 0 ? Math.floor((processedRows / totalRows) * 100) : 0;
+                    meta.textContent = 'Processed ' + processedRows + ' / ' + totalRows + ' (' + shownPct + '%) | ETA ' + formatEta(res.data.eta_seconds) + ' | Elapsed ' + formatElapsed(res.data.duration_seconds);
+
+                    if (res.data.status === 'completed') {
+                        bar.style.width = '100%';
+                        pct.textContent = '100%';
+                        bar.classList.remove('progress-bar-striped', 'progress-bar-animated', 'bg-danger');
+                        bar.classList.add('bg-success');
+                        status.textContent = res.data.message || 'FPall import completed.';
+                        meta.textContent = 'Processed ' + processedRows + ' / ' + totalRows + ' (100%) | ETA 00:00 | Elapsed ' + formatElapsed(res.data.duration_seconds);
+                        if (res.data.report_url) {
+                            reportLink.href = res.data.report_url;
+                            reportLink.classList.remove('d-none');
+                        }
+                        if (typeof showToast === 'function') showToast(status.textContent, 'success');
+                        setFormEnabled(form, true);
+                        return;
+                    }
+
+                    if (res.data.status === 'failed') {
+                        bar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                        bar.classList.add('bg-danger');
+                        status.textContent = res.data.message || 'FPall import failed.';
+                        if (res.data.report_url) {
+                            reportLink.href = res.data.report_url;
+                            reportLink.classList.remove('d-none');
+                        }
+                        if (typeof showToast === 'function') showToast(status.textContent, 'danger');
+                        setFormEnabled(form, true);
+                        return;
+                    }
+
+                    setTimeout(tick, 1500);
+                })
+                .catch(function (err) {
+                    bar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                    bar.classList.add('bg-danger');
+                    status.textContent = err.message || 'Status polling failed.';
+                    if (typeof showToast === 'function') showToast(status.textContent, 'danger');
+                    setFormEnabled(form, true);
+                });
+        };
+        setTimeout(tick, 900);
+    }
+
+    const fpallButtons = document.querySelectorAll('.fpall-import-btn');
+    fpallButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (evt) {
+            evt.preventDefault();
+
+            const form = btn.closest('form');
+            if (!form) return;
+
+            const fileInput = form.querySelector('input[type="file"][name="file"]');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                if (typeof showToast === 'function') {
+                    showToast('Please select an FPall file first.', 'warning');
+                } else {
+                    alert('Please select an FPall file first.');
+                }
+                return;
+            }
+
+            const entityName = 'cells';
+            const wrap = document.getElementById('fpallProgressWrap_' + entityName);
+            const bar = document.getElementById('fpallProgressBar_' + entityName);
+            const pct = document.getElementById('fpallProgressPct_' + entityName);
+            const status = document.getElementById('fpallProgressStatus_' + entityName);
+            const meta = document.getElementById('fpallProgressMeta_' + entityName);
+            const reportLink = document.getElementById('fpallReportLink_' + entityName);
+            if (!wrap || !bar || !pct || !status || !meta || !reportLink) return;
+
+            wrap.classList.remove('d-none');
+            bar.style.width = '0%';
+            pct.textContent = '0%';
+            status.textContent = 'Uploading file...';
+            meta.textContent = 'Processed 0 / 0 | ETA --:-- | Elapsed 00:00';
+            bar.classList.remove('bg-success', 'bg-danger');
+            bar.classList.add('progress-bar-striped', 'progress-bar-animated');
+            reportLink.classList.add('d-none');
+            reportLink.href = '#';
+
+            const data = new FormData(form);
+            data.set('import_mode', 'fpall');
+
+            setFormEnabled(form, false);
+
+            const startUrl = form.getAttribute('data-fpall-start-url') || form.action;
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', startUrl, true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+
+            xhr.upload.onprogress = function (e) {
+                if (!e.lengthComputable) return;
+                const percent = Math.min(100, Math.round((e.loaded / e.total) * 100));
+                bar.style.width = percent + '%';
+                pct.textContent = percent + '%';
+                status.textContent = percent < 100 ? 'Uploading file...' : 'Upload complete. Processing...';
+            };
+
+            xhr.onload = function () {
+                let payload = null;
+                try { payload = JSON.parse(xhr.responseText || '{}'); } catch (e) { payload = null; }
+
+                if (xhr.status >= 200 && xhr.status < 300 && payload && payload.success) {
+                    bar.style.width = '100%';
+                    pct.textContent = '100%';
+                    status.textContent = 'Upload complete. Server is processing FPall...';
+                    pollFpallStatus(payload.status_url, { bar: bar, pct: pct, status: status, meta: meta, reportLink: reportLink }, form);
+                    return;
+                }
+
+                bar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                bar.classList.add('bg-danger');
+                status.textContent = (payload && payload.message) ? payload.message : 'FPall import failed.';
+                if (typeof showToast === 'function') showToast(status.textContent, 'danger');
+                setFormEnabled(form, true);
+            };
+
+            xhr.onerror = function () {
+                bar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                bar.classList.add('bg-danger');
+                status.textContent = 'Network error during FPall import.';
+                if (typeof showToast === 'function') showToast(status.textContent, 'danger');
+                setFormEnabled(form, true);
+            };
+
+            xhr.send(data);
+        });
+    });
+});
+</script>
 {% endblock %}

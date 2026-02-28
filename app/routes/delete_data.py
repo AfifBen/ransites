@@ -3,7 +3,7 @@ import logging
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models import Site, Cell, Antenna, Sector, Mapping
-from app.security import csrf_protect, get_accessible_site_ids, is_admin_user, login_required
+from app.security import append_audit_event, csrf_protect, get_accessible_site_ids, is_admin_user, login_required
 
 delete_bp = Blueprint('delete_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ def delete_items(entity):
             db.session.delete(item)
         
         db.session.commit()
+        append_audit_event("delete", entity, "SUCCESS", f"{len(items_to_delete)} items")
         
         return jsonify({
             'success': True, 
@@ -77,4 +78,5 @@ def delete_items(entity):
     except Exception as e:
         db.session.rollback()
         logger.exception("Erreur suppression")
+        append_audit_event("delete", entity, "FAILED", str(e))
         return jsonify({'success': False, 'message': "Erreur lors de la suppression en cascade."}), 500

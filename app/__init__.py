@@ -1,11 +1,14 @@
 import os
 import secrets
+import sqlite3
 
 import click
 from flask import Flask
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 from app.security import generate_csrf_token
 
@@ -17,12 +20,31 @@ login_manager.login_message = "Veuillez vous connecter pour continuer."
 login_manager.login_message_category = "warning"
 
 
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+    # Reduce SQLite lock errors on heavy imports:
+    # - WAL allows concurrent readers during writes
+    # - busy_timeout waits before raising "database is locked"
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.execute("PRAGMA busy_timeout=60000;")
+        cursor.close()
+
+
 def create_app():
     app = Flask(__name__)
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///radio.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
+    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "connect_args": {
+                "timeout": 60
+            }
+        }
 
     app.jinja_env.add_extension("jinja2.ext.do")
     app.jinja_env.globals["csrf_token"] = generate_csrf_token

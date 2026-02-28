@@ -1,4 +1,5 @@
 {% set path = request.path %}
+{% set is_admin = current_user.is_authenticated and current_user.is_admin_user %}
 <nav class="nav flex-column sidebar-nav" id="sidebarAccordion">
     <a class="nav-link {{ 'active' if path.startswith('/dashboard') else '' }}" href="{{ url_for('main.dashboard') }}">
         <i class="bi bi-speedometer2 me-2"></i> Dashboard
@@ -6,6 +7,7 @@
 
     <hr class="my-2 border-secondary">
 
+    {% if is_admin %}
     <div class="mb-1">
         <a class="nav-link d-flex justify-content-between align-items-center"
            data-bs-toggle="collapse"
@@ -35,7 +37,9 @@
             </nav>
         </div>
     </div>
+    {% endif %}
 
+    {% if is_admin %}
     <div class="mb-1">
         <a class="nav-link d-flex justify-content-between align-items-center"
            data-bs-toggle="collapse"
@@ -65,7 +69,9 @@
             </nav>
         </div>
     </div>
+    {% endif %}
 
+    {% if is_admin %}
     <div class="mb-1">
         <a class="nav-link d-flex justify-content-between align-items-center"
            data-bs-toggle="collapse"
@@ -110,10 +116,13 @@
             <i class="bi bi-chevron-down small text-white"></i>
         </a>
 
-        <div class="collapse {{ 'show' if path.startswith('/allplan_export') or path.startswith('/kml_export') else '' }}" id="planningCollapse" data-bs-parent="#sidebarAccordion">
+        <div class="collapse {{ 'show' if path.startswith('/allplan_export') or path.startswith('/lbs_export') or path.startswith('/kml_export') else '' }}" id="planningCollapse" data-bs-parent="#sidebarAccordion">
             <nav class="nav flex-column ps-3">
                 <a class="nav-link {{ 'active' if path.startswith('/allplan_export') else '' }}" href="{{ url_for('main.allplan_export_page') }}">
                     <i class="bi bi-grid-3x3-gap-fill me-2"></i> Allplan
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/lbs_export') else '' }}" href="{{ url_for('main.lbs_export_page') }}">
+                    <i class="bi bi-diagram-3 me-2"></i> LBS
                 </a>
                 <a class="nav-link {{ 'active' if path.startswith('/kml_export') else '' }}" href="{{ url_for('main.kml_export_page') }}">
                     <i class="bi bi-globe2 me-2"></i> KML
@@ -137,7 +146,7 @@
             <i class="bi bi-chevron-down small text-white"></i>
         </a>
 
-        <div class="collapse {{ 'show' if path.startswith('/import_export') or path.startswith('/users') else '' }}" id="adminCollapse" data-bs-parent="#sidebarAccordion">
+        <div class="collapse {{ 'show' if path.startswith('/import_export') or path.startswith('/users') or path.startswith('/admin/import-logs') or path.startswith('/admin/ran-parameters') else '' }}" id="adminCollapse" data-bs-parent="#sidebarAccordion">
             <nav class="nav flex-column ps-3">
                 <a class="nav-link {{ 'active' if path.startswith('/users') else '' }}" href="{{ url_for('auth.users_page') }}">
                     <i class="bi bi-person-gear me-2"></i> User Management
@@ -145,7 +154,14 @@
                 <a class="nav-link {{ 'active' if path.startswith('/import_export') else '' }}" href="{{ url_for('main.import_export') }}">
                     <i class="bi bi-arrow-repeat me-2"></i> Data Import / Export
                 </a>
+                <a class="nav-link {{ 'active' if path.startswith('/admin/ran-parameters') else '' }}" href="{{ url_for('auth.ran_parameters_page') }}">
+                    <i class="bi bi-sliders me-2"></i> RAN Parameters
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/admin/import-logs') else '' }}" href="{{ url_for('auth.import_logs_page') }}">
+                    <i class="bi bi-journal-check me-2"></i> Import Logs
+                </a>
             </nav>
         </div>
     </div>
+    {% endif %}
 </nav>

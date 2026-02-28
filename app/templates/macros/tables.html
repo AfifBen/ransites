@@ -4,9 +4,22 @@
 {% set entity_slug = titre | lower | replace(' ', '_') | replace('/', '_') %}
 {% set is_user_table = entity_slug in ['user', 'users'] %}
 {% set is_site_table = entity_slug in ['site', 'sites'] %}
+{% set is_cell_table = entity_slug in ['cell', 'cells'] %}
 <div class="card shadow-sm mb-4" data-entity="{{ entity_slug }}">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
-        <h5 class="m-0 text-white">{{ titre }}</h5>
+        <div class="d-flex align-items-center gap-2">
+            {% if is_cell_table %}
+            <button id="syncCellSectorBtn" class="btn btn-outline-primary btn-sm" title="Sync Cell/Sector">
+                <i class="bi bi-arrow-repeat"></i>
+            </button>
+            {% endif %}
+            {% if is_site_table %}
+            <button id="syncSiteAltitudeBtn" class="btn btn-outline-primary btn-sm" title="Sync Site Altitude">
+                <i class="bi bi-arrow-repeat"></i>
+            </button>
+            {% endif %}
+            <h5 class="m-0 text-white">{{ titre }}</h5>
+        </div>
         <div class="table-actions">
             {% if is_site_table %}
             <button id="siteProfileBtn" class="btn btn-outline-light btn-sm" title="Site Profile" style="display:none;">
@@ -31,6 +44,7 @@
                 <i class="bi bi-download"></i>
             </button>
             {% endif %}
+
 
             {% if not is_user_table %}
             <form action="{{ url_for('import_bp.import_data', entity=titre | lower | replace(' ', '_') | replace('/', '_')) }}"

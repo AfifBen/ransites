@@ -1,17 +1,24 @@
 import io
 import logging
 import os
+import threading
+import uuid
+from datetime import datetime
 from math import asin, atan2, cos, radians, sin, degrees
+from pathlib import Path
 from xml.sax.saxutils import escape
 
-from flask import Blueprint, abort, request, send_file
+from flask import Blueprint, abort, current_app, jsonify, request, send_file, url_for
 from openpyxl import load_workbook
+from sqlalchemy.orm import joinedload
 
-from app.models import Cell, Sector, Site
-from app.security import get_accessible_site_ids, login_required
+from app.models import Cell, Commune, Sector, Site, Wilaya
+from app.security import csrf_protect, get_accessible_site_ids, login_required
 
 doc_bp = Blueprint('doc_bp', __name__)
 logger = logging.getLogger(__name__)
+_kml_jobs = {}
+_kml_jobs_lock = threading.Lock()
 
 
 def _site_allowed(site):
@@ -19,6 +26,25 @@ def _site_allowed(site):
     if accessible_sites is None:
         return True
     return site.id in accessible_sites
+
+
+def _set_kml_job(job_id, **fields):
+    with _kml_jobs_lock:
+        job = _kml_jobs.get(job_id, {})
+        job.update(fields)
+        _kml_jobs[job_id] = job
+        return dict(job)
+
+
+def _get_kml_job(job_id):
+    with _kml_jobs_lock:
+        return dict(_kml_jobs.get(job_id, {}))
+
+
+def _kml_exports_dir():
+    out_dir = Path(current_app.instance_path) / "kml_exports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
 
 def _kml_document(placemarks):
@@ -302,16 +328,14 @@ def generate_d4b(site_id):
 def export_kml_sites():
     icon_href = _site_icon_href(request.args.get('site_icon', default='tower', type=str))
     icon_scale = _clamp(request.args.get('site_icon_scale', default=1.2, type=float) or 1.2, 0.8, 1.8)
-    query = Site.query.order_by(Site.code_site.asc())
-    accessible_sites = get_accessible_site_ids()
-    if accessible_sites is not None:
-        if not accessible_sites:
-            abort(403, description='Aucun site autorise pour cet utilisateur.')
-        query = query.filter(Site.id.in_(list(accessible_sites)))
-
-    sites = query.all()
-    placemarks = ''.join(_build_site_placemark(site, icon_href=icon_href, icon_scale=icon_scale) for site in sites)
-    content = _kml_document(placemarks)
+    content = _build_sites_kml_content(
+        icon_href=icon_href,
+        icon_scale=icon_scale,
+        region_id=_safe_int(request.args.get("region_id")),
+        wilaya_id=_safe_int(request.args.get("wilaya_id")),
+        commune_id=_safe_int(request.args.get("commune_id")),
+        site_id=_safe_int(request.args.get("site_id")),
+    )
 
     return send_file(
         io.BytesIO(content.encode('utf-8')),
@@ -330,25 +354,16 @@ def export_kml_sectors():
     line_color = _kml_color_from_rgb(beam_rgb, "ff")
     poly_color = _kml_color_from_rgb(beam_rgb, "66")
 
-    query = Sector.query.join(Site, Sector.site_id == Site.id).order_by(Sector.code_sector.asc())
-    accessible_sites = get_accessible_site_ids()
-    if accessible_sites is not None:
-        if not accessible_sites:
-            abort(403, description='Aucun secteur autorise pour cet utilisateur.')
-        query = query.filter(Site.id.in_(list(accessible_sites)))
-
-    sectors = query.all()
-    placemarks = ''.join(
-        _build_sector_placemark_with_options(
-            sector,
-            beam_length_km=beam_length_km,
-            beam_width_deg=beam_width_deg,
-            line_color=line_color,
-            poly_color=poly_color,
-        )
-        for sector in sectors
+    content = _build_sectors_kml_content(
+        beam_length_km=beam_length_km,
+        beam_width_deg=beam_width_deg,
+        line_color=line_color,
+        poly_color=poly_color,
+        region_id=_safe_int(request.args.get("region_id")),
+        wilaya_id=_safe_int(request.args.get("wilaya_id")),
+        commune_id=_safe_int(request.args.get("commune_id")),
+        site_id=_safe_int(request.args.get("site_id")),
     )
-    content = _kml_document(placemarks)
 
     return send_file(
         io.BytesIO(content.encode('utf-8')),
@@ -358,12 +373,295 @@ def export_kml_sectors():
     )
 
 
-def _build_sector_placemark_with_options(sector, beam_length_km, beam_width_deg, line_color, poly_color):
+def _safe_int(value):
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _iter_accessible_sites(region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+    query = Site.query.order_by(Site.code_site.asc())
+    accessible_sites = get_accessible_site_ids()
+    if accessible_sites is not None:
+        if not accessible_sites:
+            return []
+        query = query.filter(Site.id.in_(list(accessible_sites)))
+    if site_id is not None:
+        query = query.filter(Site.id == int(site_id))
+    if commune_id is not None:
+        query = query.filter(Site.commune_id == int(commune_id))
+    if wilaya_id is not None:
+        query = query.filter(Site.commune.has(wilaya_id=int(wilaya_id)))
+    if region_id is not None:
+        query = query.filter(Site.commune.has(Commune.wilaya.has(region_id=int(region_id))))
+    return query
+
+
+def _iter_accessible_sectors(region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+    query = (
+        Sector.query
+        .join(Site, Sector.site_id == Site.id)
+        .options(joinedload(Sector.site).joinedload(Site.commune))
+        .order_by(Sector.code_sector.asc())
+    )
+    accessible_sites = get_accessible_site_ids()
+    if accessible_sites is not None:
+        if not accessible_sites:
+            return []
+        query = query.filter(Site.id.in_(list(accessible_sites)))
+    if site_id is not None:
+        query = query.filter(Sector.site_id == int(site_id))
+    if commune_id is not None:
+        query = query.filter(Site.commune_id == int(commune_id))
+    if wilaya_id is not None:
+        query = query.filter(Site.commune.has(wilaya_id=int(wilaya_id)))
+    if region_id is not None:
+        query = query.filter(Site.commune.has(Commune.wilaya.has(region_id=int(region_id))))
+    return query
+
+
+def _build_sites_kml_content(icon_href, icon_scale, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+    query = _iter_accessible_sites(region_id=region_id, wilaya_id=wilaya_id, commune_id=commune_id, site_id=site_id)
+    if isinstance(query, list):
+        abort(403, description='Aucun site autorise pour cet utilisateur.')
+
+    total = query.count()
+    placemarks = []
+    processed = 0
+    for site in query.yield_per(1000):
+        placemarks.append(_build_site_placemark(site, icon_href=icon_href, icon_scale=icon_scale))
+        processed += 1
+        if progress_cb and (processed == 1 or processed % 300 == 0 or processed == total):
+            progress_cb(processed, total, f"Building sites KML {processed}/{total}")
+    return _kml_document(''.join(placemarks))
+
+
+def _prefetch_cells_by_sector(sector_ids, progress_cb=None):
+    cells_by_sector = {}
+    total_batches = max((len(sector_ids) + 999) // 1000, 1)
+    for idx in range(total_batches):
+        chunk = sector_ids[idx * 1000:(idx + 1) * 1000]
+        if not chunk:
+            continue
+        cells = (
+            Cell.query
+            .options(joinedload(Cell.antenna))
+            .filter(Cell.sector_id.in_(chunk))
+            .all()
+        )
+        for cell in cells:
+            cells_by_sector.setdefault(cell.sector_id, []).append(cell)
+        if progress_cb:
+            progress_cb(idx + 1, total_batches, f"Loading sector cells {idx + 1}/{total_batches}")
+    return cells_by_sector
+
+
+def _build_sectors_kml_content(beam_length_km, beam_width_deg, line_color, poly_color, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+    query = _iter_accessible_sectors(region_id=region_id, wilaya_id=wilaya_id, commune_id=commune_id, site_id=site_id)
+    if isinstance(query, list):
+        abort(403, description='Aucun secteur autorise pour cet utilisateur.')
+
+    sectors = query.all()
+    if not sectors:
+        return _kml_document("")
+
+    sector_ids = [s.id for s in sectors]
+    cells_by_sector = _prefetch_cells_by_sector(
+        sector_ids,
+        progress_cb=(lambda done, total, msg: progress_cb(done, total * 2, msg) if progress_cb else None),
+    )
+
+    total = len(sectors)
+    placemarks = []
+    for idx, sector in enumerate(sectors, start=1):
+        placemarks.append(
+            _build_sector_placemark_with_options(
+                sector,
+                beam_length_km=beam_length_km,
+                beam_width_deg=beam_width_deg,
+                line_color=line_color,
+                poly_color=poly_color,
+                preloaded_cells=cells_by_sector.get(sector.id, []),
+            )
+        )
+        if progress_cb and (idx == 1 or idx % 300 == 0 or idx == total):
+            progress_cb(total + idx, total * 2, f"Building sectors KML {idx}/{total}")
+
+    return _kml_document(''.join(placemarks))
+
+
+def _run_kml_job(app_obj, job_id, kind, params):
+    started_at = datetime.utcnow()
+    _set_kml_job(job_id, status="processing", progress=2, message="Starting KML export...", started_at=started_at.isoformat())
+    try:
+        with app_obj.app_context():
+            region_id = _safe_int(params.get("region_id"))
+            wilaya_id = _safe_int(params.get("wilaya_id"))
+            commune_id = _safe_int(params.get("commune_id"))
+            site_id = _safe_int(params.get("site_id"))
+            if kind == "sites":
+                icon_href = _site_icon_href(params.get("site_icon"))
+                icon_scale = _clamp(float(params.get("site_icon_scale", 1.2)), 0.8, 1.8)
+                content = _build_sites_kml_content(
+                    icon_href=icon_href,
+                    icon_scale=icon_scale,
+                    region_id=region_id,
+                    wilaya_id=wilaya_id,
+                    commune_id=commune_id,
+                    site_id=site_id,
+                    progress_cb=lambda done, total, msg: _set_kml_job(
+                        job_id,
+                        progress=int((done * 100 / max(total, 1))),
+                        processed=int(done),
+                        total=int(total),
+                        message=msg,
+                    ),
+                )
+                download_name = "sites_export.kml"
+            else:
+                beam_length_km = _clamp(float(params.get("beam_length_km", 0.8)), 0.1, 10.0)
+                beam_width_deg = _clamp(float(params.get("beam_width_deg", 40.0)), 5.0, 180.0)
+                beam_rgb = _parse_hex_color(params.get("beam_color", "#0055ff"))
+                line_color = _kml_color_from_rgb(beam_rgb, "ff")
+                poly_color = _kml_color_from_rgb(beam_rgb, "66")
+                content = _build_sectors_kml_content(
+                    beam_length_km=beam_length_km,
+                    beam_width_deg=beam_width_deg,
+                    line_color=line_color,
+                    poly_color=poly_color,
+                    region_id=region_id,
+                    wilaya_id=wilaya_id,
+                    commune_id=commune_id,
+                    site_id=site_id,
+                    progress_cb=lambda done, total, msg: _set_kml_job(
+                        job_id,
+                        progress=int((done * 100 / max(total, 1))),
+                        processed=int(done),
+                        total=int(total),
+                        message=msg,
+                    ),
+                )
+                download_name = "sectors_export.kml"
+
+            out_path = _kml_exports_dir() / f"kml_{job_id}.kml"
+            out_path.write_text(content, encoding="utf-8")
+            _set_kml_job(
+                job_id,
+                status="completed",
+                progress=100,
+                message="KML export completed.",
+                file_path=str(out_path),
+                download_name=download_name,
+                finished_at=datetime.utcnow().isoformat(),
+            )
+    except Exception as exc:
+        logger.exception("KML async export failed")
+        _set_kml_job(
+            job_id,
+            status="failed",
+            progress=100,
+            message=f"KML export failed: {exc}",
+            finished_at=datetime.utcnow().isoformat(),
+        )
+
+
+@doc_bp.route('/export_kml/sites/start', methods=['POST'])
+@login_required
+@csrf_protect
+def start_kml_sites_export():
+    job_id = uuid.uuid4().hex
+    params = {
+        "site_icon": request.form.get("site_icon", "tower"),
+        "site_icon_scale": request.form.get("site_icon_scale", "1.2"),
+        "region_id": request.form.get("region_id", ""),
+        "wilaya_id": request.form.get("wilaya_id", ""),
+        "commune_id": request.form.get("commune_id", ""),
+        "site_id": request.form.get("site_id", ""),
+    }
+    _set_kml_job(job_id, status="queued", progress=0, message="Sites KML queued...")
+    app_obj = current_app._get_current_object()
+    threading.Thread(target=_run_kml_job, args=(app_obj, job_id, "sites", params), daemon=True).start()
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "status_url": url_for("doc_bp.kml_job_status", job_id=job_id),
+        "download_url": url_for("doc_bp.kml_job_download", job_id=job_id),
+    }), 202
+
+
+@doc_bp.route('/export_kml/sectors/start', methods=['POST'])
+@login_required
+@csrf_protect
+def start_kml_sectors_export():
+    job_id = uuid.uuid4().hex
+    params = {
+        "beam_length_km": request.form.get("beam_length_km", "0.8"),
+        "beam_width_deg": request.form.get("beam_width_deg", "40"),
+        "beam_color": request.form.get("beam_color", "#0055ff"),
+        "region_id": request.form.get("region_id", ""),
+        "wilaya_id": request.form.get("wilaya_id", ""),
+        "commune_id": request.form.get("commune_id", ""),
+        "site_id": request.form.get("site_id", ""),
+    }
+    _set_kml_job(job_id, status="queued", progress=0, message="Sectors KML queued...")
+    app_obj = current_app._get_current_object()
+    threading.Thread(target=_run_kml_job, args=(app_obj, job_id, "sectors", params), daemon=True).start()
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "status_url": url_for("doc_bp.kml_job_status", job_id=job_id),
+        "download_url": url_for("doc_bp.kml_job_download", job_id=job_id),
+    }), 202
+
+
+@doc_bp.route('/export_kml/status/<job_id>', methods=['GET'])
+@login_required
+def kml_job_status(job_id):
+    job = _get_kml_job(job_id)
+    if not job:
+        return jsonify({"success": False, "message": "KML job not found."}), 404
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "status": job.get("status", "unknown"),
+        "progress": int(job.get("progress", 0)),
+        "message": job.get("message", ""),
+        "processed": int(job.get("processed", 0)),
+        "total": int(job.get("total", 0)),
+        "download_ready": bool(job.get("file_path")),
+        "download_url": url_for("doc_bp.kml_job_download", job_id=job_id),
+    }), 200
+
+
+@doc_bp.route('/export_kml/download/<job_id>', methods=['GET'])
+@login_required
+def kml_job_download(job_id):
+    job = _get_kml_job(job_id)
+    file_path = job.get("file_path") if job else None
+    if not file_path:
+        return jsonify({"success": False, "message": "KML file not ready."}), 404
+    p = Path(file_path)
+    if not p.exists():
+        return jsonify({"success": False, "message": "KML file missing."}), 404
+    return send_file(
+        str(p),
+        as_attachment=True,
+        download_name=job.get("download_name", p.name),
+        mimetype='application/vnd.google-earth.kml+xml',
+    )
+
+
+def _build_sector_placemark_with_options(sector, beam_length_km, beam_width_deg, line_color, poly_color, preloaded_cells=None):
     site = sector.site
     if not site or site.longitude is None or site.latitude is None:
         return ''
 
-    cells = sector.cells.all() if hasattr(sector.cells, "all") else list(sector.cells)
+    cells = preloaded_cells if preloaded_cells is not None else (
+        sector.cells.all() if hasattr(sector.cells, "all") else list(sector.cells)
+    )
     antenna_models = sorted({cell.antenna.model for cell in cells if getattr(cell, 'antenna', None) and cell.antenna.model})
     technologies = sorted({str(cell.technology).strip() for cell in cells if getattr(cell, "technology", None)})
     frequencies = sorted({str(cell.frequency).strip() for cell in cells if getattr(cell, "frequency", None)})

@@ -38,7 +38,10 @@ function initializeDataTable(tableId, scrollX, languageUrl) {
 
     const isScrollX = (scrollX === 'True' || scrollX === 'true' || scrollX === true);
     const isSitesTable = tableId === 'sitesTable';
-    const defaultOrder = isSitesTable ? [[2, 'asc']] : [[1, 'asc']];
+    const isCellsTable = tableId === 'cellsTable';
+    const pageParams = new URLSearchParams(window.location.search || '');
+    const dqFilter = pageParams.get('dq_filter') || '';
+    const defaultOrder = (isSitesTable || isCellsTable) ? [[2, 'asc']] : [[1, 'asc']];
     const columnDefs = [
         {
             targets: 0,
@@ -60,9 +63,18 @@ function initializeDataTable(tableId, scrollX, languageUrl) {
     }
 
     const table = $table.DataTable({
-        pageLength: 10,
-        lengthMenu: [5, 10, 20, 50],
+        pageLength: isCellsTable ? 50 : 10,
+        lengthMenu: isCellsTable ? [10, 25, 50, 100] : [5, 10, 20, 50],
         order: defaultOrder,
+        processing: isCellsTable,
+        serverSide: isCellsTable,
+        ajax: isCellsTable ? {
+            url: '/cells/data',
+            type: 'GET',
+            data: function (d) {
+                if (dqFilter) d.dq_filter = dqFilter;
+            }
+        } : undefined,
         select: {
             style: 'multi',
             selector: 'td:first-child'
@@ -82,6 +94,7 @@ function initializeDataTable(tableId, scrollX, languageUrl) {
             info: 'Showing _START_ to _END_ of _TOTAL_ entries',
             infoEmpty: 'No data available',
             zeroRecords: 'No matching records found',
+            processing: 'Loading cells...',
             select: {
                 rows: {
                     _: '%d rows selected',
@@ -145,7 +158,8 @@ function initializeDataTable(tableId, scrollX, languageUrl) {
 
     $('#selectAll').off('click').on('click', function () {
         if (this.checked) {
-            table.rows({ search: 'applied' }).select();
+            const rowsScope = isCellsTable ? { page: 'current' } : { search: 'applied' };
+            table.rows(rowsScope).select();
         } else {
             table.rows().deselect();
         }

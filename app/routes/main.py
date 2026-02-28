@@ -2,17 +2,30 @@ import io
 import re
 import csv
 import math
+import json
+import threading
+import uuid
 from datetime import datetime
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, jsonify
+from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, send_file, jsonify
+from flask_login import current_user
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 
-from app.models import Region, Wilaya, Commune, Site, Antenna, Supplier, Sector, Mapping, Cell
-from app.security import login_required, csrf_protect, get_accessible_site_ids
+from app import db
+from app.models import Region, Wilaya, Commune, Site, Antenna, Supplier, Sector, Mapping, Cell, Cell2G, Cell3G, Cell4G
+from app.security import admin_required, append_audit_event, login_required, csrf_protect, get_accessible_site_ids
+from app.ran_reference import build_ran_reference_map
 
 main_bp = Blueprint('main', __name__)
+
+_cell_sector_sync_jobs = {}
+_cell_sector_sync_lock = threading.Lock()
+_site_altitude_sync_jobs = {}
+_site_altitude_sync_lock = threading.Lock()
 
 
 def _haversine_km(lat1, lon1, lat2, lon2):
@@ -25,6 +38,22 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return r * c
+
+
+def _fetch_ground_altitude(latitude, longitude):
+    # Best-effort elevation lookup from Open-Elevation API.
+    try:
+        query = urlencode({"locations": f"{latitude},{longitude}"})
+        url = f"https://api.open-elevation.com/api/v1/lookup?{query}"
+        with urlopen(url, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        results = payload.get("results") or []
+        if not results:
+            return None
+        val = results[0].get("elevation")
+        return float(val) if val is not None else None
+    except Exception:
+        return None
 
 IMPORT_TEMPLATE_SPECS = {
     "sites": {
@@ -73,6 +102,7 @@ IMPORT_TEMPLATE_SPECS = {
                 "RAC",
                 "BSIC",
                 "BCCH",
+                "CI",
             ],
             "3G": [
                 "CELLNAME",
@@ -87,6 +117,7 @@ IMPORT_TEMPLATE_SPECS = {
                 "RAC",
                 "PSC",
                 "DLARFCN",
+                "CI",
             ],
             "4G": [
                 "CELLNAME",
@@ -101,6 +132,7 @@ IMPORT_TEMPLATE_SPECS = {
                 "RSI",
                 "PCI",
                 "EARFCN",
+                "CI",
             ],
             "5G": [
                 "CELLNAME",
@@ -115,6 +147,7 @@ IMPORT_TEMPLATE_SPECS = {
                 "RSI",
                 "PCI",
                 "ARFCN",
+                "CI",
             ],
         }
     },
@@ -180,10 +213,10 @@ IMPORT_TEMPLATE_EXAMPLES = {
         ]
     },
     "cells": {
-        "2G": ["2C28SU217_1", "2G", "GSM900", "2G", 2, 1, "ANT-900-65", "BSC01", "1201", "1", "63", 62],
-        "3G": ["3C28SU217_1", "3G", "U2100", "3G", 2, 1, "ANT-2100-65", "RNC01", "1201", "1", 245, "10612"],
-        "4G": ["4C28SU217_1", "4G", "L1800", "4G", 2, 1, "ANT-L18-65", "ENB2801", "2801", "12", 321, "1650"],
-        "5G": ["5C28SU217_1", "5G", "N78", "5G", 2, 1, "ANT-N78-64T", "GNB2801", "1201", "15", 501, "636666"],
+        "2G": ["2C28SU217_1", "2G", "GSM900", "2G", 2, 1, "ANT-900-65", "BSC01", "1201", "1", "63", 62, 2801001],
+        "3G": ["3C28SU217_1", "3G", "U2100", "3G", 2, 1, "ANT-2100-65", "RNC01", "1201", "1", 245, "10612", 2801001],
+        "4G": ["4C28SU217_1", "4G", "L1800", "4G", 2, 1, "ANT-L18-65", "ENB2801", "2801", "12", 321, "1650", 2801001],
+        "5G": ["5C28SU217_1", "5G", "N78", "5G", 2, 1, "ANT-N78-64T", "GNB2801", "1201", "15", 501, "636666", 2801001],
     },
     "mapping": {"mapping": ["MAP_0001", "1", "4G", "L1800", "1", "4G"]},
     "antennas": {"antennas": ["Nokia", "ANT-L18-65", 1800, 65, 6.5, "Panel 18", 2, "Panel", 17.8]},
@@ -214,6 +247,26 @@ ALLPLAN_HEADERS = {
     ],
 }
 
+LBS_HEADERS = {
+    "2G": [
+        "CID", "Site Name", "CellName", "Longitude", "Latitude", "AntennaType", "MaxCellRadius",
+        "AntennaGain", "BSNominalPower", "BSPowerBCCH", "TAlimit", "AntennaSpec", "HeightAGL",
+        "DownTilt", "MechanicalTilt", "ElectricalTilt", "Azimuth", "HorizBeamWidth", "LAC",
+        "NCC", "BCC", "BCCH", "MCC", "MNC", "FrequencyBand", "Node Name",
+    ],
+    "3G": [
+        "CID", "SiteName", "CellName", "Longitude", "Latitude", "AntennaType", "MaxCellRadius",
+        "Gain", "BSNominalPower", "AntennaSpec", "HeightAGL", "DownTilt", "Azimuth",
+        "MechanicalTilt", "ElectricalTilt", "HorizBeamWidth", "LAC", "SAC", "RNCid",
+        "PSC", "UARFCN", "FrequencyBand", "NodeName",
+    ],
+    "4G": [
+        "Site Name", "CellName", "Longitude", "Latitude", "AntennaType", "MaxCellRadius",
+        "AntennaGain", "BSNominalPower", "AntennaSpec", "HeightAGL", "DownTilt",
+        "MechanicalTilt", "ElectricalTilt", "Azimuth", "HorizBeamWidth", "TAC ",
+        "E-UTRANCELLID", "EARFCN", "FrequencyBand", "PCI", "NodeName",
+    ],
+}
 
 def get_stats():
     return {
@@ -234,56 +287,106 @@ def _normalize_tech_for_dashboard(value):
     return tech if tech else "Other"
 
 
-def get_dashboard_data(region_id=None):
+def _dashboard_scope_badge():
+    if not getattr(current_user, "is_authenticated", False):
+        return ""
+    if getattr(current_user, "is_admin_user", False):
+        return "Scoped to: All Network"
+
+    try:
+        region_count = len(getattr(current_user, "assigned_regions", []) or [])
+    except Exception:
+        region_count = 0
+    try:
+        wilaya_count = len(getattr(current_user, "assigned_wilayas", []) or [])
+    except Exception:
+        wilaya_count = 0
+    try:
+        site_count = len(getattr(current_user, "assigned_sites", []) or [])
+    except Exception:
+        site_count = 0
+    return f"Scoped to: Regions {region_count} | Wilayas {wilaya_count} | Sites {site_count}"
+
+
+def get_dashboard_data():
     global_stats = get_stats()
 
-    region_filter = None
-    if region_id is not None:
-        try:
-            region_filter = int(region_id)
-        except (TypeError, ValueError):
-            region_filter = None
+    accessible_sites = get_accessible_site_ids()
 
     site_base_query = Site.query
-    if region_filter is not None:
-        site_base_query = (
-            site_base_query
-            .join(Commune, Site.commune_id == Commune.id)
-            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
-            .filter(Wilaya.region_id == region_filter)
-        )
+    if accessible_sites is not None:
+        if not accessible_sites:
+            site_base_query = site_base_query.filter(False)
+        else:
+            site_base_query = site_base_query.filter(Site.id.in_(list(accessible_sites)))
+
+    scoped_site_ids_subq = site_base_query.with_entities(Site.id).subquery()
 
     total_sites = site_base_query.count()
 
-    sector_base_query = Sector.query.join(Site, Sector.site_id == Site.id)
-    if region_filter is not None:
-        sector_base_query = (
-            sector_base_query
-            .join(Commune, Site.commune_id == Commune.id)
-            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
-            .filter(Wilaya.region_id == region_filter)
-        )
+    sector_base_query = Sector.query.filter(Sector.site_id.in_(db.session.query(scoped_site_ids_subq.c.id)))
     total_sectors = sector_base_query.count()
 
-    cell_base_query = Cell.query.outerjoin(Sector, Cell.sector_id == Sector.id).outerjoin(Site, Sector.site_id == Site.id)
-    if region_filter is not None:
-        cell_base_query = (
-            cell_base_query
-            .join(Commune, Site.commune_id == Commune.id)
-            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
-            .filter(Wilaya.region_id == region_filter)
-        )
+    cell_base_query = (
+        Cell.query
+        .outerjoin(Sector, Cell.sector_id == Sector.id)
+        .outerjoin(Site, Sector.site_id == Site.id)
+        .filter(Site.id.in_(db.session.query(scoped_site_ids_subq.c.id)))
+    )
     total_cells = cell_base_query.count()
+
+    if accessible_sites is None:
+        scoped_regions = global_stats["total_regions"]
+        scoped_wilayas = global_stats["total_wilayas"]
+        scoped_communes = global_stats["total_communes"]
+        scoped_suppliers = global_stats["total_suppliers"]
+        scoped_antennas = global_stats["total_antennas"]
+    else:
+        scoped_regions = (
+            db.session.query(func.count(func.distinct(Wilaya.region_id)))
+            .join(Commune, Commune.wilaya_id == Wilaya.id)
+            .join(Site, Site.commune_id == Commune.id)
+            .filter(Site.id.in_(list(accessible_sites)))
+            .scalar()
+            or 0
+        )
+        scoped_wilayas = (
+            db.session.query(func.count(func.distinct(Commune.wilaya_id)))
+            .join(Site, Site.commune_id == Commune.id)
+            .filter(Site.id.in_(list(accessible_sites)))
+            .scalar()
+            or 0
+        )
+        scoped_communes = (
+            db.session.query(func.count(func.distinct(Site.commune_id)))
+            .filter(Site.id.in_(list(accessible_sites)))
+            .scalar()
+            or 0
+        )
+        scoped_suppliers = (
+            db.session.query(func.count(func.distinct(Site.supplier_id)))
+            .filter(Site.id.in_(list(accessible_sites)), Site.supplier_id.isnot(None))
+            .scalar()
+            or 0
+        )
+        scoped_antennas = (
+            db.session.query(func.count(func.distinct(Cell.antenna_id)))
+            .outerjoin(Sector, Cell.sector_id == Sector.id)
+            .outerjoin(Site, Sector.site_id == Site.id)
+            .filter(Site.id.in_(list(accessible_sites)), Cell.antenna_id.isnot(None))
+            .scalar()
+            or 0
+        )
 
     stats = {
         "total_sites": total_sites,
         "total_sectors": total_sectors,
         "total_cells": total_cells,
-        "total_regions": global_stats["total_regions"],
-        "total_wilayas": global_stats["total_wilayas"],
-        "total_communes": global_stats["total_communes"],
-        "total_suppliers": global_stats["total_suppliers"],
-        "total_antennas": global_stats["total_antennas"],
+        "total_regions": scoped_regions,
+        "total_wilayas": scoped_wilayas,
+        "total_communes": scoped_communes,
+        "total_suppliers": scoped_suppliers,
+        "total_antennas": scoped_antennas,
         "total_cell_id_mapping": global_stats["total_cell_id_mapping"],
     }
 
@@ -306,10 +409,9 @@ def get_dashboard_data(region_id=None):
         Wilaya.query.with_entities(Wilaya.name, func.count(Site.id).label("site_count"))
         .join(Commune, Commune.wilaya_id == Wilaya.id)
         .outerjoin(Site, Site.commune_id == Commune.id)
+        .filter(Site.id.in_(db.session.query(scoped_site_ids_subq.c.id)))
         .group_by(Wilaya.id, Wilaya.name)
     )
-    if region_filter is not None:
-        top_wilayas_query = top_wilayas_query.filter(Wilaya.region_id == region_filter)
     top_wilayas_raw = top_wilayas_query.order_by(func.count(Site.id).desc(), Wilaya.name.asc()).limit(8).all()
     max_wilaya = max((row.site_count for row in top_wilayas_raw), default=1)
     top_wilayas = [
@@ -350,17 +452,11 @@ def get_dashboard_data(region_id=None):
         .filter(Cell.id.is_(None))
         .count()
     )
-    cells_without_sector_query = Cell.query.filter(Cell.sector_id.is_(None))
-    if region_filter is not None:
-        cells_without_sector_query = (
-            Cell.query.outerjoin(Sector, Cell.sector_id == Sector.id)
-            .outerjoin(Site, Sector.site_id == Site.id)
-            .join(Commune, Site.commune_id == Commune.id)
-            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
-            .filter(Wilaya.region_id == region_filter)
-            .filter(Cell.sector_id.is_(None))
-        )
-    cells_without_sector = cells_without_sector_query.count()
+    # Cells without sector have no site binding; keep count only for global admin view.
+    if accessible_sites is None:
+        cells_without_sector = Cell.query.filter(Cell.sector_id.is_(None)).count()
+    else:
+        cells_without_sector = 0
 
     cells_without_antenna_query = cell_base_query.filter(Cell.antenna_id.is_(None))
     cells_without_antenna = cells_without_antenna_query.count()
@@ -391,14 +487,13 @@ def get_dashboard_data(region_id=None):
 
     return {
         "stats": stats,
+        "scope_badge": _dashboard_scope_badge(),
         "avg_sectors_per_site": avg_sectors_per_site,
         "avg_cells_per_sector": avg_cells_per_sector,
         "tech_distribution": tech_distribution,
         "top_wilayas": top_wilayas,
         "top_suppliers": top_suppliers,
         "data_quality": data_quality,
-        "region_filter": region_filter,
-        "regions": Region.query.order_by(Region.name.asc()).all(),
         "charts": {
             "tech_labels": [row["label"] for row in tech_distribution],
             "tech_values": [row["value"] for row in tech_distribution],
@@ -492,6 +587,75 @@ def _parse_cell_file(file_storage):
     return ordered
 
 
+def _cell_suffix_int(cellname):
+    parts = str(cellname or "").rsplit("_", 1)
+    if len(parts) == 2 and str(parts[1]).isdigit():
+        return int(parts[1])
+    return None
+
+
+def _freq_band_int(value):
+    txt = str(value or "").strip()
+    m = re.search(r"(\d{3,5})", txt)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _antenna_type_for_lbs(site):
+    st = (site.support_type or "").lower() if site else ""
+    if "indoor" in st:
+        return "Indoor"
+    return "Macro"
+
+
+def _ncc_bcc_from_bsic(raw_bsic):
+    if raw_bsic is None:
+        return None, None
+
+
+def _lbs_radius_km(tech, band, ran_map):
+    try:
+        b = int(float(band)) if band is not None else None
+    except (TypeError, ValueError):
+        b = None
+    if b is not None and (tech, b) in ran_map:
+        return ran_map[(tech, b)]["radius"]
+    if tech == "2G":
+        return 35
+    if tech == "3G":
+        return 25
+    if tech == "4G":
+        return 20
+    return 4
+
+
+def _lbs_nominal_power_dbm(tech, band, ran_map):
+    try:
+        b = int(float(band)) if band is not None else None
+    except (TypeError, ValueError):
+        b = None
+    if b is not None and (tech, b) in ran_map:
+        return ran_map[(tech, b)]["power"]
+    if tech == "2G":
+        return 48
+    if tech == "3G":
+        return 46
+    if tech == "4G":
+        return 46
+    return 46
+    try:
+        v = int(float(raw_bsic))
+        if v < 0:
+            return None, None
+        return v // 8, v % 8
+    except (TypeError, ValueError):
+        return None, None
+
+
 @main_bp.route('/')
 @main_bp.route('/dashboard')
 @login_required
@@ -501,6 +665,7 @@ def dashboard():
 
 @main_bp.route('/import_export')
 @login_required
+@admin_required
 def import_export():
     return render_template('import_export.html', title='Import & Export')
 
@@ -650,6 +815,12 @@ def allplan_export_page():
     return render_template('allplan_export.html', title='Allplan Export')
 
 
+@main_bp.route('/lbs_export')
+@login_required
+def lbs_export_page():
+    return render_template('lbs_export.html', title='LBS Export')
+
+
 @main_bp.route('/kml_export')
 @login_required
 def kml_export_page():
@@ -658,7 +829,9 @@ def kml_export_page():
 
 @main_bp.route('/export-data/<entity>', methods=['GET'])
 @login_required
+@admin_required
 def export_data(entity):
+    append_audit_event("export_data", entity, "SUCCESS", f"Export trigger for {entity}")
     flash(f"Démarrage de l'exportation pour l'entité \"{entity.upper()}\"...", "info")
     return redirect(url_for('main.import_export'))
 
@@ -826,4 +999,631 @@ def export_allplan():
         as_attachment=True,
         download_name=filename,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+@main_bp.route('/sync-cell-sectors', methods=['POST'])
+@login_required
+@csrf_protect
+def sync_cell_sectors():
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    uploaded_file = request.files.get("cell_file")
+    raw_cells = request.form.get("cell_list", "")
+    scope = (request.form.get("scope") or "").strip().lower()
+    search = (request.form.get("search") or "").strip()
+    prioritized_cells = [c.strip() for c in request.form.getlist("prioritized_cells") if str(c).strip()]
+
+    cell_names = []
+    if uploaded_file and uploaded_file.filename:
+        try:
+            cell_names = _parse_cell_file(uploaded_file)
+        except ValueError as exc:
+            if is_ajax:
+                return jsonify({"success": False, "message": str(exc)}), 400
+            flash(str(exc), "danger")
+            return redirect(request.referrer or url_for("main.import_export"))
+    elif raw_cells.strip():
+        cell_names = _parse_cell_list(raw_cells)
+
+    if scope != "all" and not cell_names and not search and not prioritized_cells:
+        msg = "Provide a cell file/list or select Sync ALL cells."
+        if is_ajax:
+            return jsonify({"success": False, "message": msg}), 400
+        flash(msg, "warning")
+        return redirect(request.referrer or url_for("main.import_export"))
+
+    job_id = uuid.uuid4().hex
+    append_audit_event("sync_start", "cells", "SUCCESS", f"Cell/Sector sync scope={scope}")
+    _set_cell_sector_sync_job(
+        job_id,
+        status="queued",
+        progress=0,
+        message="Cell/Sector sync queued...",
+        total=0,
+        processed=0,
+        updated=0,
+        unchanged=0,
+        unresolved=0,
+        skipped=0,
+        created_at=datetime.utcnow().isoformat(),
+    )
+    app_obj = current_app._get_current_object()
+    t = threading.Thread(
+        target=_run_cell_sector_sync_job,
+        args=(app_obj, job_id, scope, cell_names, search, prioritized_cells),
+        daemon=True,
+    )
+    t.start()
+
+    status_url = url_for("main.cell_sector_sync_status", job_id=job_id)
+    if is_ajax:
+        return jsonify({"success": True, "job_id": job_id, "status_url": status_url}), 202
+
+    flash("Cell/Sector sync started in background.", "info")
+    return redirect(request.referrer or url_for("main.import_export"))
+
+
+def _set_cell_sector_sync_job(job_id, **fields):
+    with _cell_sector_sync_lock:
+        job = _cell_sector_sync_jobs.get(job_id, {})
+        job.update(fields)
+        _cell_sector_sync_jobs[job_id] = job
+        return dict(job)
+
+
+def _get_cell_sector_sync_job(job_id):
+    with _cell_sector_sync_lock:
+        return dict(_cell_sector_sync_jobs.get(job_id, {}))
+
+
+def _set_site_altitude_sync_job(job_id, **fields):
+    with _site_altitude_sync_lock:
+        job = _site_altitude_sync_jobs.get(job_id, {})
+        job.update(fields)
+        _site_altitude_sync_jobs[job_id] = job
+        return dict(job)
+
+
+def _get_site_altitude_sync_job(job_id):
+    with _site_altitude_sync_lock:
+        return dict(_site_altitude_sync_jobs.get(job_id, {}))
+
+
+def _run_cell_sector_sync_job(app_obj, job_id, scope, cell_names, search, prioritized_cells):
+    started_at = datetime.utcnow()
+    _set_cell_sector_sync_job(
+        job_id,
+        status="processing",
+        progress=1,
+        message="Loading cells...",
+        started_at=started_at.isoformat(),
+    )
+
+    try:
+        from app.routes.import_data import resolve_sector_id_for_cell
+        with app_obj.app_context():
+            # Sync targets only cells without sector.
+            query = Cell.query.filter(Cell.sector_id.is_(None))
+            if scope != "all":
+                if cell_names:
+                    query = query.filter(Cell.cellname.in_(cell_names))
+                elif search:
+                    like = f"%{search}%"
+                    query = query.filter(
+                        or_(
+                            Cell.cellname.ilike(like),
+                            Cell.technology.ilike(like),
+                            Cell.frequency.ilike(like),
+                        )
+                    )
+
+            total = query.count()
+            if total == 0:
+                _set_cell_sector_sync_job(
+                    job_id,
+                    status="completed",
+                    progress=100,
+                    message="No cells found for sector sync.",
+                    total=0,
+                    processed=0,
+                    finished_at=datetime.utcnow().isoformat(),
+                )
+                return
+
+            _set_cell_sector_sync_job(job_id, total=total, message=f"Syncing {total} cells...")
+
+            updated = 0
+            unchanged = 0
+            unresolved = 0
+            skipped = 0
+            processed = 0
+            pending = 0
+            batch_size = 2000
+
+            priority_set = set(prioritized_cells or [])
+            if priority_set:
+                # Process currently visible rows first, then the rest.
+                ordered = (
+                    list(query.filter(Cell.cellname.in_(list(priority_set))).yield_per(1000))
+                    + list(query.filter(~Cell.cellname.in_(list(priority_set))).yield_per(1000))
+                )
+            else:
+                ordered = query.yield_per(1000)
+
+            for cell in ordered:
+                tech = (cell.technology or "").strip().upper()
+                freq = (cell.frequency or "").strip()
+                if not cell.cellname or not tech or not freq:
+                    skipped += 1
+                else:
+                    sector_id, _ = resolve_sector_id_for_cell(cell.cellname, tech, freq)
+                    if sector_id is None:
+                        unresolved += 1
+                    elif cell.sector_id == int(sector_id):
+                        unchanged += 1
+                    else:
+                        cell.sector_id = int(sector_id)
+                        updated += 1
+                        pending += 1
+
+                processed += 1
+                if pending >= batch_size:
+                    db.session.commit()
+                    pending = 0
+
+                if processed == 1 or processed % 500 == 0 or processed == total:
+                    pct = int(processed * 100 / total)
+                    _set_cell_sector_sync_job(
+                        job_id,
+                        progress=pct,
+                        processed=processed,
+                        updated=updated,
+                        unchanged=unchanged,
+                        unresolved=unresolved,
+                        skipped=skipped,
+                        message=f"Sync {processed}/{total}",
+                    )
+
+            db.session.commit()
+            finished_at = datetime.utcnow()
+            _set_cell_sector_sync_job(
+                job_id,
+                status="completed",
+                progress=100,
+                processed=processed,
+                updated=updated,
+                unchanged=unchanged,
+                unresolved=unresolved,
+                skipped=skipped,
+                finished_at=finished_at.isoformat(),
+                message=(
+                    f"Cell sector sync done: {updated} updated, {unchanged} unchanged, "
+                    f"{unresolved} unresolved, {skipped} skipped."
+                ),
+            )
+    except Exception as exc:
+        with app_obj.app_context():
+            db.session.rollback()
+        _set_cell_sector_sync_job(
+            job_id,
+            status="failed",
+            progress=100,
+            message=f"Cell/Sector sync failed: {exc}",
+            finished_at=datetime.utcnow().isoformat(),
+        )
+
+
+@main_bp.route('/sync-cell-sectors/status/<job_id>', methods=['GET'])
+@login_required
+def cell_sector_sync_status(job_id):
+    job = _get_cell_sector_sync_job(job_id)
+    if not job:
+        return jsonify({"success": False, "message": "Sync job not found."}), 404
+
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "status": job.get("status", "unknown"),
+        "progress": int(job.get("progress", 0)),
+        "message": job.get("message", ""),
+        "total": int(job.get("total", 0)),
+        "processed": int(job.get("processed", 0)),
+        "updated": int(job.get("updated", 0)),
+        "unchanged": int(job.get("unchanged", 0)),
+        "unresolved": int(job.get("unresolved", 0)),
+        "skipped": int(job.get("skipped", 0)),
+    }), 200
+
+
+@main_bp.route('/sync-site-altitudes', methods=['POST'])
+@login_required
+@csrf_protect
+def sync_site_altitudes():
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    scope = (request.form.get("scope") or "").strip().lower()
+    search = (request.form.get("search") or "").strip()
+
+    prioritized_sites = []
+    for raw in request.form.getlist("prioritized_sites"):
+        try:
+            prioritized_sites.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    prioritized_sites = sorted(set(prioritized_sites))
+
+    if scope != "all" and not search and not prioritized_sites:
+        msg = "Provide a filter or select Sync ALL sites."
+        if is_ajax:
+            return jsonify({"success": False, "message": msg}), 400
+        flash(msg, "warning")
+        return redirect(request.referrer or url_for("list_bp.view_sites"))
+
+    job_id = uuid.uuid4().hex
+    append_audit_event("sync_start", "sites", "SUCCESS", f"Site altitude sync scope={scope}")
+    accessible_sites_snapshot = get_accessible_site_ids()
+    _set_site_altitude_sync_job(
+        job_id,
+        status="queued",
+        progress=0,
+        message="Site altitude sync queued...",
+        total=0,
+        processed=0,
+        updated=0,
+        unresolved=0,
+        skipped=0,
+        created_at=datetime.utcnow().isoformat(),
+    )
+
+    app_obj = current_app._get_current_object()
+    t = threading.Thread(
+        target=_run_site_altitude_sync_job,
+        args=(app_obj, job_id, scope, search, prioritized_sites, accessible_sites_snapshot),
+        daemon=True,
+    )
+    t.start()
+
+    status_url = url_for("main.site_altitude_sync_status", job_id=job_id)
+    if is_ajax:
+        return jsonify({"success": True, "job_id": job_id, "status_url": status_url}), 202
+
+    flash("Site altitude sync started in background.", "info")
+    return redirect(request.referrer or url_for("list_bp.view_sites"))
+
+
+def _run_site_altitude_sync_job(app_obj, job_id, scope, search, prioritized_sites, accessible_sites_snapshot):
+    _set_site_altitude_sync_job(
+        job_id,
+        status="processing",
+        progress=1,
+        message="Loading sites...",
+        started_at=datetime.utcnow().isoformat(),
+    )
+    try:
+        with app_obj.app_context():
+            query = Site.query
+            accessible_sites = accessible_sites_snapshot
+            if accessible_sites is not None:
+                if not accessible_sites:
+                    query = query.filter(False)
+                else:
+                    query = query.filter(Site.id.in_(list(accessible_sites)))
+
+            # Target only sites missing altitude.
+            query = query.filter(Site.altitude.is_(None))
+
+            if scope != "all":
+                if prioritized_sites:
+                    query = query.filter(Site.id.in_(prioritized_sites))
+                elif search:
+                    like = f"%{search}%"
+                    query = query.filter(or_(Site.code_site.ilike(like), Site.name.ilike(like)))
+
+            total = query.count()
+            if total == 0:
+                _set_site_altitude_sync_job(
+                    job_id,
+                    status="completed",
+                    progress=100,
+                    message="No sites to update (altitude already filled or no match).",
+                    total=0,
+                    processed=0,
+                    finished_at=datetime.utcnow().isoformat(),
+                )
+                return
+
+            _set_site_altitude_sync_job(job_id, total=total, message=f"Syncing altitude for {total} sites...")
+
+            updated = 0
+            unresolved = 0
+            skipped = 0
+            processed = 0
+            pending = 0
+            batch_size = 100
+
+            ordered = query.yield_per(200)
+            for site in ordered:
+                lat = site.latitude
+                lon = site.longitude
+                if lat is None or lon is None:
+                    skipped += 1
+                else:
+                    alt = _fetch_ground_altitude(lat, lon)
+                    if alt is None:
+                        unresolved += 1
+                    else:
+                        site.altitude = round(float(alt), 1)
+                        updated += 1
+                        pending += 1
+
+                processed += 1
+                if pending >= batch_size:
+                    db.session.commit()
+                    pending = 0
+
+                if processed == 1 or processed % 25 == 0 or processed == total:
+                    pct = int(processed * 100 / total)
+                    _set_site_altitude_sync_job(
+                        job_id,
+                        progress=pct,
+                        processed=processed,
+                        updated=updated,
+                        unresolved=unresolved,
+                        skipped=skipped,
+                        message=f"Altitude sync {processed}/{total}",
+                    )
+
+            db.session.commit()
+            _set_site_altitude_sync_job(
+                job_id,
+                status="completed",
+                progress=100,
+                processed=processed,
+                updated=updated,
+                unresolved=unresolved,
+                skipped=skipped,
+                finished_at=datetime.utcnow().isoformat(),
+                message=(
+                    f"Site altitude sync done: {updated} updated, "
+                    f"{unresolved} unresolved, {skipped} skipped."
+                ),
+            )
+    except Exception as exc:
+        with app_obj.app_context():
+            db.session.rollback()
+        _set_site_altitude_sync_job(
+            job_id,
+            status="failed",
+            progress=100,
+            message=f"Site altitude sync failed: {exc}",
+            finished_at=datetime.utcnow().isoformat(),
+        )
+
+
+@main_bp.route('/sync-site-altitudes/status/<job_id>', methods=['GET'])
+@login_required
+def site_altitude_sync_status(job_id):
+    job = _get_site_altitude_sync_job(job_id)
+    if not job:
+        return jsonify({"success": False, "message": "Sync job not found."}), 404
+
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "status": job.get("status", "unknown"),
+        "progress": int(job.get("progress", 0)),
+        "message": job.get("message", ""),
+        "total": int(job.get("total", 0)),
+        "processed": int(job.get("processed", 0)),
+        "updated": int(job.get("updated", 0)),
+        "unresolved": int(job.get("unresolved", 0)),
+        "skipped": int(job.get("skipped", 0)),
+    }), 200
+
+
+@main_bp.route('/export-lbs', methods=['POST'])
+@login_required
+@csrf_protect
+def export_lbs():
+    uploaded_file = request.files.get("cell_file")
+    raw_cells = request.form.get('cell_list', '')
+
+    cell_names = []
+    if uploaded_file and uploaded_file.filename:
+        try:
+            cell_names = _parse_cell_file(uploaded_file)
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("main.lbs_export_page"))
+    else:
+        cell_names = _parse_cell_list(raw_cells)
+
+    if not cell_names:
+        flash("Please provide a non-empty cell list (.xlsx/.csv or text).", "warning")
+        return redirect(url_for("main.lbs_export_page"))
+
+    ran_map = build_ran_reference_map(current_app.instance_path)
+
+    cells = (
+        Cell.query.options(
+            joinedload(Cell.sector).joinedload(Sector.site).joinedload(Site.commune),
+            joinedload(Cell.antenna),
+            joinedload(Cell.profile_2g),
+            joinedload(Cell.profile_3g),
+            joinedload(Cell.profile_4g),
+        )
+        .filter(Cell.cellname.in_(cell_names))
+        .all()
+    )
+
+    by_name = {c.cellname: c for c in cells}
+    rows = {"2G": [], "3G": [], "4G": []}
+    not_found_rows = []
+
+    for name in cell_names:
+        cell = by_name.get(name)
+        if not cell:
+            not_found_rows.append({
+                "CELLNAME": name,
+                "TECHNOLOGY": None,
+                "ISSUE": "CELL_MISSING",
+                "DETAIL": "Cell not found in Cell table.",
+            })
+            continue
+
+        tech = _normalize_tech(cell.technology)
+        if tech not in rows:
+            not_found_rows.append({
+                "CELLNAME": cell.cellname,
+                "TECHNOLOGY": cell.technology,
+                "ISSUE": "TECHNOLOGY_UNSUPPORTED",
+                "DETAIL": "Supported technologies for LBS export are 2G/3G/4G.",
+            })
+            continue
+
+        sector = cell.sector
+        site = sector.site if sector else None
+        antenna = cell.antenna
+        cid = _cell_suffix_int(cell.cellname)
+        band = _freq_band_int(cell.frequency)
+        common = {
+            "site_code": site.code_site if site else None,
+            "cellname": cell.cellname,
+            "lon": site.longitude if site else None,
+            "lat": site.latitude if site else None,
+            "ant_type": _antenna_type_for_lbs(site),
+            "radius": _lbs_radius_km(tech, band, ran_map),
+            "gain": antenna.gain if antenna else None,
+            "pwr": _lbs_nominal_power_dbm(tech, band, ran_map),
+            "spec": antenna.model if antenna else None,
+            "hba": sector.hba if sector else None,
+            "down_tilt": cell.tilt_electrical,
+            "mech_tilt": cell.tilt_mechanical,
+            "elec_tilt": cell.tilt_electrical,
+            "az": sector.azimuth if sector else None,
+            "h_bw": antenna.hbeamwidth if antenna else None,
+            "band": band,
+        }
+
+        issues = []
+        if not sector:
+            issues.append("SECTOR_MISSING")
+        if sector and not site:
+            issues.append("SITE_MISSING")
+
+        if tech == "2G":
+            p2 = cell.profile_2g
+            ncc, bcc = _ncc_bcc_from_bsic(p2.bsic if p2 else None)
+            rows["2G"].append({
+                "CID": p2.ci if p2 and p2.ci is not None else cid,
+                "Site Name": common["site_code"],
+                "CellName": common["cellname"],
+                "Longitude": common["lon"],
+                "Latitude": common["lat"],
+                "AntennaType": common["ant_type"],
+                "MaxCellRadius": common["radius"],
+                "AntennaGain": common["gain"],
+                "BSNominalPower": common["pwr"],
+                "BSPowerBCCH": 20,
+                "TAlimit": 5,
+                "AntennaSpec": common["spec"],
+                "HeightAGL": common["hba"],
+                "DownTilt": common["down_tilt"],
+                "MechanicalTilt": common["mech_tilt"],
+                "ElectricalTilt": common["elec_tilt"],
+                "Azimuth": common["az"],
+                "HorizBeamWidth": common["h_bw"],
+                "LAC": p2.lac if p2 else None,
+                "NCC": ncc,
+                "BCC": bcc,
+                "BCCH": p2.bcch if p2 else None,
+                "MCC": 603,
+                "MNC": 2,
+                "FrequencyBand": common["band"],
+                "Node Name": p2.bsc if p2 else None,
+            })
+        elif tech == "3G":
+            p3 = cell.profile_3g
+            rows["3G"].append({
+                "CID": p3.ci if p3 and p3.ci is not None else cid,
+                "SiteName": common["site_code"],
+                "CellName": common["cellname"],
+                "Longitude": common["lon"],
+                "Latitude": common["lat"],
+                "AntennaType": common["ant_type"],
+                "MaxCellRadius": common["radius"],
+                "Gain": common["gain"],
+                "BSNominalPower": common["pwr"],
+                "AntennaSpec": common["spec"],
+                "HeightAGL": common["hba"],
+                "DownTilt": common["down_tilt"],
+                "Azimuth": common["az"],
+                "MechanicalTilt": common["mech_tilt"],
+                "ElectricalTilt": common["elec_tilt"],
+                "HorizBeamWidth": common["h_bw"],
+                "LAC": p3.lac if p3 else None,
+                "SAC": cid,
+                "RNCid": p3.rnc if p3 else None,
+                "PSC": p3.psc if p3 else None,
+                "UARFCN": p3.dlarfcn if p3 else None,
+                "FrequencyBand": common["band"],
+                "NodeName": p3.rnc if p3 else None,
+            })
+        else:
+            p4 = cell.profile_4g
+            rows["4G"].append({
+                "Site Name": common["site_code"],
+                "CellName": common["cellname"],
+                "Longitude": common["lon"],
+                "Latitude": common["lat"],
+                "AntennaType": common["ant_type"],
+                "MaxCellRadius": common["radius"],
+                "AntennaGain": common["gain"],
+                "BSNominalPower": common["pwr"],
+                "AntennaSpec": common["spec"],
+                "HeightAGL": common["hba"],
+                "DownTilt": common["down_tilt"],
+                "MechanicalTilt": common["mech_tilt"],
+                "ElectricalTilt": common["elec_tilt"],
+                "Azimuth": common["az"],
+                "HorizBeamWidth": common["h_bw"],
+                "TAC ": p4.tac if p4 else None,
+                "E-UTRANCELLID": p4.ci if p4 and p4.ci is not None else cid,
+                "EARFCN": p4.earfcn if p4 else None,
+                "FrequencyBand": common["band"],
+                "PCI": p4.pci if p4 else None,
+                "NodeName": p4.enodeb if p4 else None,
+            })
+
+        if issues:
+            not_found_rows.append({
+                "CELLNAME": cell.cellname,
+                "TECHNOLOGY": cell.technology,
+                "ISSUE": ", ".join(issues),
+                "DETAIL": "Missing relationship Cell->Sector->Site.",
+            })
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for tech in ("2G", "3G", "4G"):
+        ws = wb.create_sheet(tech)
+        headers = LBS_HEADERS[tech]
+        ws.append(headers)
+        for row in rows[tech]:
+            ws.append([row.get(h) for h in headers])
+
+    ws_nf = wb.create_sheet("NOT_FOUND")
+    nf_headers = ["CELLNAME", "TECHNOLOGY", "ISSUE", "DETAIL"]
+    ws_nf.append(nf_headers)
+    for row in not_found_rows:
+        ws_nf.append([row.get(h) for h in nf_headers])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"lbs_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
