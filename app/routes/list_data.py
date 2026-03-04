@@ -565,3 +565,29 @@ def view_regions():
     
     return render_template('tables/model_viewer.html', id_table='regionsTable', 
                            titre='Regions', colonnes=headers, donnees=rows)
+
+@list_bp.route('/mapping')
+@login_required
+@admin_required
+def view_mapping():
+    items = Mapping.query.order_by(Mapping.map_id.asc()).all()
+    headers = ['ID', 'Map ID', 'Cell Code', 'Antenna Tech', 'Band', 'Sector Code', 'Technology']
+    rows = [
+        [
+            str(m.id),
+            m.map_id or '',
+            m.cell_code or '',
+            m.antenna_tech or '',
+            m.band or '',
+            m.sector_code or '',
+            m.technology or '',
+        ]
+        for m in items
+    ]
+    return render_template(
+        'tables/model_viewer.html',
+        id_table='mappingTable',
+        titre='Mapping',
+        colonnes=headers,
+        donnees=rows,
+    )

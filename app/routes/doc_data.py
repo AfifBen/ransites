@@ -9,16 +9,18 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, abort, current_app, jsonify, request, send_file, url_for
+from flask_login import current_user
 from openpyxl import load_workbook
 from sqlalchemy.orm import joinedload
 
 from app.models import Cell, Commune, Sector, Site, Wilaya
-from app.security import csrf_protect, get_accessible_site_ids, login_required
+from app.security import csrf_protect, get_accessible_site_ids, is_admin_user, login_required
 
 doc_bp = Blueprint('doc_bp', __name__)
 logger = logging.getLogger(__name__)
 _kml_jobs = {}
 _kml_jobs_lock = threading.Lock()
+ADMIN_FULL_SCOPE = "__ADMIN_FULL_SCOPE__"
 
 
 def _site_allowed(site):
@@ -382,9 +384,12 @@ def _safe_int(value):
         return None
 
 
-def _iter_accessible_sites(region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+def _iter_accessible_sites(region_id=None, wilaya_id=None, commune_id=None, site_id=None, accessible_site_ids=None):
     query = Site.query.order_by(Site.code_site.asc())
-    accessible_sites = get_accessible_site_ids()
+    if accessible_site_ids == ADMIN_FULL_SCOPE:
+        accessible_sites = None
+    else:
+        accessible_sites = get_accessible_site_ids() if accessible_site_ids is None else accessible_site_ids
     if accessible_sites is not None:
         if not accessible_sites:
             return []
@@ -400,14 +405,17 @@ def _iter_accessible_sites(region_id=None, wilaya_id=None, commune_id=None, site
     return query
 
 
-def _iter_accessible_sectors(region_id=None, wilaya_id=None, commune_id=None, site_id=None):
+def _iter_accessible_sectors(region_id=None, wilaya_id=None, commune_id=None, site_id=None, accessible_site_ids=None):
     query = (
         Sector.query
         .join(Site, Sector.site_id == Site.id)
         .options(joinedload(Sector.site).joinedload(Site.commune))
         .order_by(Sector.code_sector.asc())
     )
-    accessible_sites = get_accessible_site_ids()
+    if accessible_site_ids == ADMIN_FULL_SCOPE:
+        accessible_sites = None
+    else:
+        accessible_sites = get_accessible_site_ids() if accessible_site_ids is None else accessible_site_ids
     if accessible_sites is not None:
         if not accessible_sites:
             return []
@@ -423,8 +431,14 @@ def _iter_accessible_sectors(region_id=None, wilaya_id=None, commune_id=None, si
     return query
 
 
-def _build_sites_kml_content(icon_href, icon_scale, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None):
-    query = _iter_accessible_sites(region_id=region_id, wilaya_id=wilaya_id, commune_id=commune_id, site_id=site_id)
+def _build_sites_kml_content(icon_href, icon_scale, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None, accessible_site_ids=None):
+    query = _iter_accessible_sites(
+        region_id=region_id,
+        wilaya_id=wilaya_id,
+        commune_id=commune_id,
+        site_id=site_id,
+        accessible_site_ids=accessible_site_ids,
+    )
     if isinstance(query, list):
         abort(403, description='Aucun site autorise pour cet utilisateur.')
 
@@ -459,8 +473,14 @@ def _prefetch_cells_by_sector(sector_ids, progress_cb=None):
     return cells_by_sector
 
 
-def _build_sectors_kml_content(beam_length_km, beam_width_deg, line_color, poly_color, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None):
-    query = _iter_accessible_sectors(region_id=region_id, wilaya_id=wilaya_id, commune_id=commune_id, site_id=site_id)
+def _build_sectors_kml_content(beam_length_km, beam_width_deg, line_color, poly_color, progress_cb=None, region_id=None, wilaya_id=None, commune_id=None, site_id=None, accessible_site_ids=None):
+    query = _iter_accessible_sectors(
+        region_id=region_id,
+        wilaya_id=wilaya_id,
+        commune_id=commune_id,
+        site_id=site_id,
+        accessible_site_ids=accessible_site_ids,
+    )
     if isinstance(query, list):
         abort(403, description='Aucun secteur autorise pour cet utilisateur.')
 
@@ -502,6 +522,14 @@ def _run_kml_job(app_obj, job_id, kind, params):
             wilaya_id = _safe_int(params.get("wilaya_id"))
             commune_id = _safe_int(params.get("commune_id"))
             site_id = _safe_int(params.get("site_id"))
+            raw_scope = params.get("accessible_site_ids")
+            force_admin_scope = bool(params.get("admin_scope", False))
+            if force_admin_scope:
+                accessible_site_ids = ADMIN_FULL_SCOPE
+            elif raw_scope is None:
+                accessible_site_ids = None
+            else:
+                accessible_site_ids = set(raw_scope)
             if kind == "sites":
                 icon_href = _site_icon_href(params.get("site_icon"))
                 icon_scale = _clamp(float(params.get("site_icon_scale", 1.2)), 0.8, 1.8)
@@ -512,6 +540,7 @@ def _run_kml_job(app_obj, job_id, kind, params):
                     wilaya_id=wilaya_id,
                     commune_id=commune_id,
                     site_id=site_id,
+                    accessible_site_ids=accessible_site_ids,
                     progress_cb=lambda done, total, msg: _set_kml_job(
                         job_id,
                         progress=int((done * 100 / max(total, 1))),
@@ -536,6 +565,7 @@ def _run_kml_job(app_obj, job_id, kind, params):
                     wilaya_id=wilaya_id,
                     commune_id=commune_id,
                     site_id=site_id,
+                    accessible_site_ids=accessible_site_ids,
                     progress_cb=lambda done, total, msg: _set_kml_job(
                         job_id,
                         progress=int((done * 100 / max(total, 1))),
@@ -572,6 +602,8 @@ def _run_kml_job(app_obj, job_id, kind, params):
 @login_required
 @csrf_protect
 def start_kml_sites_export():
+    admin_scope = bool(is_admin_user() or getattr(current_user, "is_admin_user", False) or getattr(current_user, "is_admin", False))
+    accessible_sites = None if admin_scope else get_accessible_site_ids()
     job_id = uuid.uuid4().hex
     params = {
         "site_icon": request.form.get("site_icon", "tower"),
@@ -580,6 +612,8 @@ def start_kml_sites_export():
         "wilaya_id": request.form.get("wilaya_id", ""),
         "commune_id": request.form.get("commune_id", ""),
         "site_id": request.form.get("site_id", ""),
+        "admin_scope": admin_scope,
+        "accessible_site_ids": None if accessible_sites is None else list(accessible_sites),
     }
     _set_kml_job(job_id, status="queued", progress=0, message="Sites KML queued...")
     app_obj = current_app._get_current_object()
@@ -596,6 +630,8 @@ def start_kml_sites_export():
 @login_required
 @csrf_protect
 def start_kml_sectors_export():
+    admin_scope = bool(is_admin_user() or getattr(current_user, "is_admin_user", False) or getattr(current_user, "is_admin", False))
+    accessible_sites = None if admin_scope else get_accessible_site_ids()
     job_id = uuid.uuid4().hex
     params = {
         "beam_length_km": request.form.get("beam_length_km", "0.8"),
@@ -605,6 +641,8 @@ def start_kml_sectors_export():
         "wilaya_id": request.form.get("wilaya_id", ""),
         "commune_id": request.form.get("commune_id", ""),
         "site_id": request.form.get("site_id", ""),
+        "admin_scope": admin_scope,
+        "accessible_site_ids": None if accessible_sites is None else list(accessible_sites),
     }
     _set_kml_job(job_id, status="queued", progress=0, message="Sectors KML queued...")
     app_obj = current_app._get_current_object()

@@ -62,6 +62,19 @@ def _to_float_or_none(raw):
         return None
 
 
+def _to_bool(raw, default=False):
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    txt = str(raw).strip().lower()
+    if txt in {"1", "true", "on", "yes", "y"}:
+        return True
+    if txt in {"0", "false", "off", "no", "n", ""}:
+        return False
+    return default
+
+
 def _fetch_ground_altitude(latitude, longitude):
     try:
         query = urlencode({"locations": f"{latitude},{longitude}"})
@@ -89,24 +102,35 @@ def _auto_fill_site_altitude(site):
         site.altitude = round(float(alt), 1)
 
 
-def _auto_assign_cell_sector(cell):
+def _auto_assign_cell_sector(cell, with_reason=False):
+    def _ret(ok, reason=None):
+        if with_reason:
+            return ok, reason
+        return ok
+
     if not cell:
-        return False
+        return _ret(False, "CELL_OBJECT_MISSING")
     cellname = (cell.cellname or "").strip()
     tech = (cell.technology or "").strip().upper()
     freq = (cell.frequency or "").strip()
     if not cellname or not tech or not freq:
-        return False
+        return _ret(False, "CELL_FIELDS_MISSING")
     try:
         from app.routes.import_data import resolve_sector_id_for_cell
         with db.session.no_autoflush:
-            sector_id, _ = resolve_sector_id_for_cell(cellname, tech, freq)
+            sector_id, _, reason_code = resolve_sector_id_for_cell(
+                cellname,
+                tech,
+                freq,
+                return_reason=True,
+            )
         if sector_id is not None:
             cell.sector_id = int(sector_id)
-            return True
+            return _ret(True, None)
+        return _ret(False, reason_code or "SECTOR_RESOLUTION_FAILED")
     except Exception:
         logger.exception("Cell sector auto-resolution failed")
-    return False
+    return _ret(False, "SECTOR_RESOLUTION_EXCEPTION")
 
 
 def _append_admin_runtime_log(entity, action, status, message):
@@ -300,8 +324,8 @@ def update_item(entity):
                 return jsonify({'success': False, 'message': 'Username deja utilise'}), 400
 
             item.username = username
-            item.is_admin = bool(data.get('is_admin', False))
-            item.is_active = bool(data.get('is_active', True))
+            item.is_admin = _to_bool(data.get('is_admin', False), default=False)
+            item.is_active = _to_bool(data.get('is_active', True), default=True)
 
             password = (data.get('password') or '').strip()
             if password:
@@ -333,10 +357,14 @@ def update_item(entity):
         if model is Cell:
             item.technology = (item.technology or '').strip().upper()
             _sync_cell_profile(item, data)
-            _auto_assign_cell_sector(item)
+            _, reason_code = _auto_assign_cell_sector(item, with_reason=True)
             if not item.sector_id:
-                _append_admin_runtime_log("cells", "cell_edit", "FAILED", f"Cell '{item.cellname}' sector auto-resolution failed.")
-                return jsonify({'success': False, 'message': 'Sector auto-resolution failed (check mapping/sector/site).'}), 400
+                msg = (
+                    f"Sector auto-resolution failed [{reason_code}] for cell '{item.cellname}' "
+                    f"(tech={item.technology}, frequency={item.frequency})."
+                )
+                _append_admin_runtime_log("cells", "cell_edit", "FAILED", msg)
+                return jsonify({'success': False, 'message': msg}), 400
             if not _item_allowed(item):
                 _append_admin_runtime_log("cells", "cell_edit", "FAILED", f"Cell '{item.cellname}' resolved sector outside scope.")
                 return jsonify({'success': False, 'message': 'Resolved sector is outside your scope.'}), 403

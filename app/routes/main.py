@@ -615,6 +615,13 @@ def _antenna_type_for_lbs(site):
 def _ncc_bcc_from_bsic(raw_bsic):
     if raw_bsic is None:
         return None, None
+    try:
+        v = int(float(raw_bsic))
+        if v < 0:
+            return None, None
+        return v // 8, v % 8
+    except (TypeError, ValueError):
+        return None, None
 
 
 def _lbs_radius_km(tech, band, ran_map):
@@ -647,13 +654,6 @@ def _lbs_nominal_power_dbm(tech, band, ran_map):
     if tech == "4G":
         return 46
     return 46
-    try:
-        v = int(float(raw_bsic))
-        if v < 0:
-            return None, None
-        return v // 8, v % 8
-    except (TypeError, ValueError):
-        return None, None
 
 
 @main_bp.route('/')
@@ -874,15 +874,11 @@ def export_allplan():
     cell_codes.discard(None)
     mappings = Mapping.query.filter(Mapping.cell_code.in_(list(cell_codes))).all() if cell_codes else []
 
-    mapping_full = {}
     mapping_tech = {}
     mapping_code = {}
     for m in mappings:
         code = (m.cell_code or "").strip()
         tech_key = (m.technology or "").strip().upper()
-        band_key = (m.band or "").strip()
-        if code and tech_key and band_key:
-            mapping_full[(code, tech_key, band_key)] = m.sector_code
         if code and tech_key:
             mapping_tech[(code, tech_key)] = m.sector_code
         if code:
@@ -915,10 +911,8 @@ def export_allplan():
         site_type = site.support_type if site else None
         cell_code = _extract_cell_code(cell.cellname)
         tech_key = (cell.technology or "").strip().upper()
-        band_key = (cell.frequency or "").strip() if cell.frequency is not None else ""
         sector_id_from_mapping = (
-            mapping_full.get((cell_code, tech_key, band_key))
-            or mapping_tech.get((cell_code, tech_key))
+            mapping_tech.get((cell_code, tech_key))
             or mapping_code.get(cell_code)
         )
 

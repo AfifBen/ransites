@@ -73,7 +73,7 @@ class User(UserMixin, db.Model):
 
     @property
     def is_admin_user(self):
-        return bool(self.is_admin or self.username.lower() == "admin")
+        return bool(self.is_admin or (self.username or "").strip().lower() == "admin")
 
 # --- Localisation ---
 class Region(db.Model):

@@ -5,6 +5,7 @@
 {% set is_user_table = entity_slug in ['user', 'users'] %}
 {% set is_site_table = entity_slug in ['site', 'sites'] %}
 {% set is_cell_table = entity_slug in ['cell', 'cells'] %}
+{% set is_mapping_table = entity_slug in ['mapping'] %}
 <div class="card shadow-sm mb-4" data-entity="{{ entity_slug }}">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-2">
         <div class="d-flex align-items-center gap-2">
@@ -29,12 +30,14 @@
                 <i class="bi bi-file-earmark-excel"></i>
             </button>
             {% endif %}
+            {% if not is_mapping_table %}
             <button id="editBtn" class="btn btn-outline-warning btn-sm" title="Edit" style="display:none;">
                 <i class="bi bi-pencil"></i>
             </button>
-            {% if not is_user_table %}
+            {% endif %}
+            {% if not is_user_table and not is_mapping_table %}
             <button id="deleteBulkBtn" class="btn btn-outline-info btn-sm" title="Delete selected"
-             style="display:none;" data-entity="{{ entity_slug }}" >
+             style="display:none;" data-entity="{{ entity_slug }}">
                 <i class="bi bi-trash"></i>
             </button>
             {% endif %}
@@ -46,7 +49,7 @@
             {% endif %}
 
 
-            {% if not is_user_table %}
+            {% if not is_user_table and not is_mapping_table %}
             <form action="{{ url_for('import_bp.import_data', entity=titre | lower | replace(' ', '_') | replace('/', '_')) }}"
                   method="POST"
                   enctype="multipart/form-data"
@@ -65,6 +68,7 @@
             </form>
             {% endif %}
 
+            {% if not is_mapping_table %}
             <button type="button"
                     id="addBtn"
                     class="btn btn-outline-light btn-sm"
@@ -73,6 +77,7 @@
                     data-bs-target="#addModal">
                 <i class="bi bi-plus"></i>
             </button>
+            {% endif %}
         </div>
     </div>
     <div class="card-body">

@@ -100,11 +100,25 @@ def validate_csrf_token():
 
 
 def is_authenticated():
-    return bool(current_user.is_authenticated)
+    try:
+        return bool(getattr(current_user, "is_authenticated", False))
+    except Exception:
+        # Can happen outside request context (background threads/jobs).
+        return False
 
 
 def is_admin_user():
-    return bool(is_authenticated() and getattr(current_user, "is_admin_user", False))
+    try:
+        if not getattr(current_user, "is_authenticated", False):
+            return False
+        username = str(getattr(current_user, "username", "") or "").strip().lower()
+        return bool(
+            getattr(current_user, "is_admin_user", False)
+            or getattr(current_user, "is_admin", False)
+            or username == "admin"
+        )
+    except Exception:
+        return False
 
 
 def get_accessible_commune_ids():
@@ -113,25 +127,39 @@ def get_accessible_commune_ids():
     if is_admin_user():
         return None
 
+    region_ids = _safe_relation_ids(current_user, "assigned_regions")
     commune_ids = _safe_relation_ids(current_user, "assigned_communes")
     wilaya_ids = _safe_relation_ids(current_user, "assigned_wilayas")
     site_ids = _safe_relation_ids(current_user, "assigned_sites")
+    from app import db
+    from app.models import Commune, Site, Wilaya
 
-    if wilaya_ids:
-        from app import db
-        from app.models import Commune
-
-        rows = db.session.query(Commune.id).filter(Commune.wilaya_id.in_(list(wilaya_ids))).all()
-        commune_ids.update(row[0] for row in rows)
+    # Priority model for explicit scoping:
+    # communes (or sites) override wilaya/region expansion.
+    if commune_ids:
+        if site_ids:
+            rows = db.session.query(Site.commune_id).filter(Site.id.in_(list(site_ids))).all()
+            commune_ids.update(row[0] for row in rows if row[0] is not None)
+        return commune_ids
 
     if site_ids:
-        from app import db
-        from app.models import Site
-
         rows = db.session.query(Site.commune_id).filter(Site.id.in_(list(site_ids))).all()
-        commune_ids.update(row[0] for row in rows if row[0] is not None)
+        return {row[0] for row in rows if row[0] is not None}
 
-    return commune_ids
+    if wilaya_ids:
+        rows = db.session.query(Commune.id).filter(Commune.wilaya_id.in_(list(wilaya_ids))).all()
+        return {row[0] for row in rows}
+
+    if region_ids:
+        rows = (
+            db.session.query(Commune.id)
+            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
+            .filter(Wilaya.region_id.in_(list(region_ids)))
+            .all()
+        )
+        return {row[0] for row in rows}
+
+    return set()
 
 
 def get_accessible_site_ids():
@@ -141,16 +169,41 @@ def get_accessible_site_ids():
         return None
 
     from app import db
-    from app.models import Site
+    from app.models import Commune, Site, Wilaya
 
+    region_ids = _safe_relation_ids(current_user, "assigned_regions")
+    wilaya_ids = _safe_relation_ids(current_user, "assigned_wilayas")
+    commune_ids = _safe_relation_ids(current_user, "assigned_communes")
     site_ids = _safe_relation_ids(current_user, "assigned_sites")
-    commune_ids = get_accessible_commune_ids() or set()
+
+    # Priority model: most specific explicit assignment wins.
+    if site_ids:
+        return site_ids
 
     if commune_ids:
         rows = db.session.query(Site.id).filter(Site.commune_id.in_(list(commune_ids))).all()
-        site_ids.update(row[0] for row in rows)
+        return {row[0] for row in rows}
 
-    return site_ids
+    if wilaya_ids:
+        rows = (
+            db.session.query(Site.id)
+            .join(Commune, Site.commune_id == Commune.id)
+            .filter(Commune.wilaya_id.in_(list(wilaya_ids)))
+            .all()
+        )
+        return {row[0] for row in rows}
+
+    if region_ids:
+        rows = (
+            db.session.query(Site.id)
+            .join(Commune, Site.commune_id == Commune.id)
+            .join(Wilaya, Commune.wilaya_id == Wilaya.id)
+            .filter(Wilaya.region_id.in_(list(region_ids)))
+            .all()
+        )
+        return {row[0] for row in rows}
+
+    return set()
 
 
 def admin_required(view):

@@ -423,77 +423,71 @@ def _fetch_ground_altitude(latitude, longitude):
 # FONCTION DE RESOLUTION DU SECTEUR (CORRIGÉE)
 # ====================================================================
 
-def resolve_sector_id_for_cell(cellname, technology, frequency):
+def resolve_sector_id_for_cell(cellname, technology, frequency, return_reason=False):
     """
-    Résout le sector_id en utilisant le Mapping pour une Cell.
-    
-    Extraction du code_site: Le code commence par 'C', 'A', ou 'O' et est limité par '_'.
-    (e.g., '4C28X100_1' -> code_site='C28X100', cell_code='1')
+    Resout le sector_id en utilisant le mapping pour une cellule.
 
-    Retourne: (sector_id, sector_code) ou (None, None)
+    Retourne:
+      - par defaut: (sector_id, sector_code)
+      - si return_reason=True: (sector_id, sector_code, reason_code)
     """
-    # 1. Extraction du Cell Code Suffix (cell_code) et du Code Site
+    def _ret(sector_id, sector_code, reason=None):
+        if return_reason:
+            return sector_id, sector_code, reason
+        return sector_id, sector_code
+
     try:
-        # rsplit('_', 1) sépare la partie Site/Secteur du suffixe Cell
-        parts = cellname.rsplit('_', 1)
-        if len(parts) == 2:
-            raw_site_part = parts[0].strip()  # e.g., '4C28X100'
-            cell_code_suffix = parts[1].strip() # CELL_CODE pour la table Mapping (e.g., '1')
-        else:
-            # Si le format standard SITE_CODE_CELL_CODE n'est pas respecté
-            return None, None
-            
-        # Extraction du CODE_SITE réel: recherche de la première lettre C, A, ou O
+        if not cellname:
+            return _ret(None, None, "CELLNAME_OR_SITE_MISSING")
+
+        parts = str(cellname).rsplit('_', 1)
+        if len(parts) != 2:
+            return _ret(None, None, "CELLNAME_FORMAT_INVALID")
+
+        raw_site_part = parts[0].strip()
+        cell_code_suffix = parts[1].strip()
+
         code_site = raw_site_part
         for i, char in enumerate(raw_site_part):
             if char.upper() in ['C', 'A', 'O']:
-                code_site = raw_site_part[i:] # e.g., 'C28X100'
+                code_site = raw_site_part[i:]
                 break
-                
     except Exception:
-        return None, None
-        
+        return _ret(None, None, "CELLNAME_PARSE_ERROR")
+
     if not cell_code_suffix or not code_site:
-        return None, None
+        return _ret(None, None, "CELLNAME_OR_SITE_MISSING")
 
-    # Normalisation des valeurs pour la recherche (Mapping.band correspond à Cell.frequency)
     tech_search = technology.strip() if technology else None
-    freq_search = frequency.strip() if frequency else None
-    
-    # Nous avons besoin de la technologie et de la fréquence (band) pour trouver le mapping
-    if not tech_search or not freq_search:
-        return None, None
-
-    sector_code_value = None
-    sector_id_value = None
+    if not tech_search:
+        return _ret(None, None, "TECHNOLOGY_MISSING")
 
     try:
-        # 2. Recherche dans la table Mapping (Cell Code + Tech + Band/Freq)
         with db.session.no_autoflush:
             mapping_obj = db.session.execute(
                 select(Mapping).filter_by(
-                    cell_code=cell_code_suffix, # '1' dans l'exemple
+                    cell_code=cell_code_suffix,
                     technology=tech_search,
-                    band=freq_search 
-                )
-            ).scalar_one_or_none()
+                ).order_by(Mapping.id.desc())
+            ).scalars().first()
 
-        if mapping_obj:
-            sector_code_value = code_site+"_"+mapping_obj.sector_code
-            logger.debug("sector_code_value: %s", sector_code_value)
-            # 3. Recherche du Sector ID à partir du Sector Code
-            if sector_code_value:
-                sector_obj = db.session.execute(
-                    select(Sector).filter_by(code_sector=sector_code_value)
-                ).scalar_one_or_none()
+        if not mapping_obj:
+            return _ret(None, None, "MAPPING_MISSING")
 
-                if sector_obj:
-                    sector_id_value = sector_obj.id
+        if not mapping_obj.sector_code:
+            return _ret(None, None, "SECTOR_CODE_MISSING")
+
+        sector_code_value = f"{code_site}_{mapping_obj.sector_code}"
+        sector_obj = db.session.execute(
+            select(Sector).filter_by(code_sector=sector_code_value)
+        ).scalar_one_or_none()
+        if not sector_obj:
+            return _ret(None, sector_code_value, "SECTOR_MISSING")
+
+        return _ret(int(sector_obj.id), sector_code_value, None)
     except Exception as e:
-        # print(f"Erreur lors de la résolution du secteur pour {cellname}: {e}") # Commenté pour éviter log excessif
-        return None, None
-    print (sector_code_value,sector_id_value)   
-    return sector_id_value, sector_code_value
+        logger.debug("Sector resolution exception for cell '%s': %s", cellname, e)
+        return _ret(None, None, f"RESOLUTION_EXCEPTION:{type(e).__name__}")
 
 # ====================================================================
 # FONCTIONS D'IMPORTATION 
