@@ -539,6 +539,18 @@ def _extract_cell_code(cellname):
     return None
 
 
+def _gps_dot(value, decimals=6):
+    # Force GPS decimal separator to dot for Excel exports.
+    if value is None:
+        return None
+    try:
+        txt = f"{float(value):.{int(decimals)}f}"
+    except (TypeError, ValueError):
+        return None
+    txt = txt.rstrip("0").rstrip(".")
+    return txt if txt else "0"
+
+
 def _parse_cell_list(raw_text):
     tokens = re.split(r"[,\s;]+", raw_text or "")
     ordered = []
@@ -933,8 +945,8 @@ def export_allplan():
 
         common = {
             'CELLNAME': cell.cellname,
-            'LONGITUDE': site.longitude if site else None,
-            'LATITUDE': site.latitude if site else None,
+            'LONGITUDE': _gps_dot(site.longitude) if site else None,
+            'LATITUDE': _gps_dot(site.latitude) if site else None,
             'AZIMUTH': sector.azimuth if sector else None,
             'HEIGHT': sector.hba if sector else None,
             'ANTENNA': antenna.model if antenna else None,
@@ -1482,8 +1494,8 @@ def export_lbs():
         common = {
             "site_code": site.code_site if site else None,
             "cellname": cell.cellname,
-            "lon": site.longitude if site else None,
-            "lat": site.latitude if site else None,
+            "lon": _gps_dot(site.longitude) if site else None,
+            "lat": _gps_dot(site.latitude) if site else None,
             "ant_type": _antenna_type_for_lbs(site),
             "radius": _lbs_radius_km(tech, band, ran_map),
             "gain": antenna.gain if antenna else None,
