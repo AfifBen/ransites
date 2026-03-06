@@ -134,21 +134,20 @@ def get_accessible_commune_ids():
     from app import db
     from app.models import Commune, Site, Wilaya
 
-    # Priority model for explicit scoping:
-    # communes (or sites) override wilaya/region expansion.
-    if commune_ids:
-        if site_ids:
-            rows = db.session.query(Site.commune_id).filter(Site.id.in_(list(site_ids))).all()
-            commune_ids.update(row[0] for row in rows if row[0] is not None)
-        return commune_ids
+    # Scope precedence:
+    # If any explicit scope (sites/communes/wilayas) is set, do NOT expand by region.
+    resolved = set(commune_ids) if commune_ids else set()
 
     if site_ids:
         rows = db.session.query(Site.commune_id).filter(Site.id.in_(list(site_ids))).all()
-        return {row[0] for row in rows if row[0] is not None}
+        resolved.update(row[0] for row in rows if row[0] is not None)
 
     if wilaya_ids:
         rows = db.session.query(Commune.id).filter(Commune.wilaya_id.in_(list(wilaya_ids))).all()
-        return {row[0] for row in rows}
+        resolved.update(row[0] for row in rows)
+
+    if resolved:
+        return resolved
 
     if region_ids:
         rows = (
@@ -176,13 +175,12 @@ def get_accessible_site_ids():
     commune_ids = _safe_relation_ids(current_user, "assigned_communes")
     site_ids = _safe_relation_ids(current_user, "assigned_sites")
 
-    # Priority model: most specific explicit assignment wins.
-    if site_ids:
-        return site_ids
+    # If explicit scopes exist, do NOT expand by region.
+    resolved = set(site_ids) if site_ids else set()
 
     if commune_ids:
         rows = db.session.query(Site.id).filter(Site.commune_id.in_(list(commune_ids))).all()
-        return {row[0] for row in rows}
+        resolved.update(row[0] for row in rows)
 
     if wilaya_ids:
         rows = (
@@ -191,7 +189,10 @@ def get_accessible_site_ids():
             .filter(Commune.wilaya_id.in_(list(wilaya_ids)))
             .all()
         )
-        return {row[0] for row in rows}
+        resolved.update(row[0] for row in rows)
+
+    if resolved:
+        return resolved
 
     if region_ids:
         rows = (

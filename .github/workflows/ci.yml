@@ -35,3 +35,7 @@ jobs:
           import run
           print('Import smoke check OK')
           PY
+
+      - name: Unit tests (scope/access)
+        run: |
+          python -m unittest -v tests.test_scope

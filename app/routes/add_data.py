@@ -175,10 +175,10 @@ def _ensure_add_permission(model_class, form_data):
 
     if model_class not in (Site, Sector, Cell):
         return False, "Acces reserve a l'administrateur pour cette entite."
-
-        accessible_communes = get_accessible_commune_ids()
-        if accessible_communes is None:
-            return True, ""
+    
+    accessible_communes = get_accessible_commune_ids()
+    if accessible_communes is None:
+        return True, ""
 
     if model_class is Site:
         # Site creation is bound to accessible communes.
