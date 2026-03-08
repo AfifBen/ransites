@@ -1,4 +1,4 @@
-import io
+﻿import io
 import re
 import csv
 import math
@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload
 
 from app import db
 from app.models import Region, Wilaya, Commune, Site, Antenna, Supplier, Sector, Mapping, Cell, Cell2G, Cell3G, Cell4G
-from app.security import admin_required, append_audit_event, login_required, csrf_protect, get_accessible_site_ids
+from app.security import admin_required, append_audit_event, login_required, csrf_protect, get_accessible_site_ids, is_admin_user
 from app.ran_reference import build_ran_reference_map
 
 main_bp = Blueprint('main', __name__)
@@ -583,7 +583,7 @@ def _parse_cell_file(file_storage):
         for row in reader:
             values.append(row[0] if row else None)
     else:
-        raise ValueError("Format non supporté. Utilisez .xlsx ou .csv.")
+        raise ValueError("Format non supportÃ©. Utilisez .xlsx ou .csv.")
 
     ordered = []
     seen = set()
@@ -839,14 +839,150 @@ def kml_export_page():
     return render_template('kml_export.html', title='KML Export')
 
 
+
+def _apply_export_search(rows, search):
+    needle = (search or "").strip().lower()
+    if not needle:
+        return rows
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if any(needle in str(v).lower() for v in row.values() if v is not None):
+            out.append(row)
+    return out
+
+
+def _collect_export_dataset(entity, search="", dq_filter=""):
+    key = (entity or "").strip().lower()
+    aliases = {
+        "vendor": "suppliers",
+        "supplier": "suppliers",
+        "vendors": "suppliers",
+    }
+    key = aliases.get(key, key)
+
+    if key == "sites":
+        from app.routes.list_data import list_sites
+        rows = list_sites(dq_filter=dq_filter)
+        for row in rows:
+            row["addresses"] = row.get("address")
+        headers = [
+            "id", "code_site", "name", "latitude", "longitude", "altitude", "support_nature",
+            "support_type", "support_height", "status", "supplier_name", "commune_name",
+            "wilaya_name", "region_name", "addresses", "comments",
+        ]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "sectors":
+        from app.routes.list_data import list_sectors
+        rows = list_sectors()
+        headers = ["id", "code_sector", "azimuth", "hba", "coverage_goal", "site_code"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "cells":
+        from app.routes.list_data import list_cells
+        rows = list_cells()
+        headers = [
+            "id", "cellname", "technology", "frequency", "antenna", "sector",
+            "tilt_mech", "tilt_elec", "tech_settings",
+        ]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "wilayas":
+        from app.routes.list_data import list_wilayas
+        rows = list_wilayas()
+        headers = ["id", "name", "region_name"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "communes":
+        from app.routes.list_data import list_communes
+        rows = list_communes()
+        headers = ["id", "name", "wilaya_name"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "regions":
+        rows = [{"id": r.id, "name": r.name} for r in Region.query.order_by(Region.name.asc()).all()]
+        headers = ["id", "name"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "suppliers":
+        rows = [{"id": s.id, "name": s.name} for s in Supplier.query.order_by(Supplier.name.asc()).all()]
+        headers = ["id", "name"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "antennas":
+        rows = []
+        for a in Antenna.query.order_by(Antenna.id.asc()).all():
+            rows.append({
+                "id": a.id,
+                "supplier": a.supplier,
+                "model": a.model,
+                "name": a.name,
+                "port": a.port,
+                "frequency": a.frequency,
+                "type": a.type,
+                "hbeamwidth": a.hbeamwidth,
+                "vbeamwidth": a.vbeamwidth,
+                "gain": a.gain,
+            })
+        headers = ["id", "supplier", "model", "name", "port", "frequency", "type", "hbeamwidth", "vbeamwidth", "gain"]
+        return key, headers, _apply_export_search(rows, search)
+
+    if key == "mapping":
+        rows = []
+        for m in Mapping.query.order_by(Mapping.id.asc()).all():
+            rows.append({
+                "id": m.id,
+                "map_id": m.map_id,
+                "cell_code": m.cell_code,
+                "antenna_tech": m.antenna_tech,
+                "band": m.band,
+                "sector_code": m.sector_code,
+                "technology": m.technology,
+            })
+        headers = ["id", "map_id", "cell_code", "antenna_tech", "band", "sector_code", "technology"]
+        return key, headers, _apply_export_search(rows, search)
+
+    return None, None, None
+
+
 @main_bp.route('/export-data/<entity>', methods=['GET'])
 @login_required
-@admin_required
 def export_data(entity):
-    append_audit_event("export_data", entity, "SUCCESS", f"Export trigger for {entity}")
-    flash(f"Démarrage de l'exportation pour l'entité \"{entity.upper()}\"...", "info")
-    return redirect(url_for('main.import_export'))
+    search = (request.args.get("search") or "").strip()
+    dq_filter = (request.args.get("dq_filter") or "").strip()
+    key, headers, rows = _collect_export_dataset(entity, search=search, dq_filter=dq_filter)
+    if not key:
+        append_audit_event("export_data", entity, "FAILED", f"Unsupported export entity: {entity}")
+        flash(f'Unsupported export entity "{entity}".', "danger")
+        return redirect(url_for('main.import_export'))
 
+    if not is_admin_user() and key not in {"sites", "sectors", "cells", "wilayas", "communes"}:
+        append_audit_event("export_data", key, "FAILED", "Access denied for non-admin user")
+        flash("Access denied for this export.", "danger")
+        return redirect(request.referrer or url_for("main.dashboard"))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = key[:31] or "export"
+    ws.append(headers)
+
+    for row in rows or []:
+        ws.append([row.get(h) if isinstance(row, dict) else None for h in headers])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"{key}_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    append_audit_event("export_data", key, "SUCCESS", f"rows={len(rows or [])}")
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 @main_bp.route('/export-allplan', methods=['POST'])
 @login_required
@@ -912,7 +1048,7 @@ def export_allplan():
                 "CELLNAME": cell.cellname,
                 "TECHNOLOGY": cell.technology,
                 "ISSUE": "TECHNOLOGY_UNSUPPORTED",
-                "DETAIL": "Technologie non supportée pour export Allplan.",
+                "DETAIL": "Technologie non supportÃ©e pour export Allplan.",
             })
             continue
 
@@ -1633,3 +1769,4 @@ def export_lbs():
         download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+

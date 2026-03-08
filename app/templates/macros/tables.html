@@ -43,9 +43,9 @@
             {% endif %}
 
             {% if not is_user_table %}
-            <button class="btn btn-outline-light btn-sm" title="Export">
+            <a href="{{ url_for('main.export_data', entity=entity_slug) }}" class="btn btn-outline-light btn-sm btn-table-export" data-entity="{{ entity_slug }}" title="Export">
                 <i class="bi bi-download"></i>
-            </button>
+            </a>
             {% endif %}
 
 

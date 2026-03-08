@@ -1433,6 +1433,32 @@ $(document).ready(function() {
         }
     });
 
+    $(document).on('click', '.btn-table-export', function(e) {
+        const href = $(this).attr('href');
+        if (!href) return;
+
+        let table = null;
+        try {
+            table = $('.dataTable').DataTable();
+        } catch (err) {
+            table = null;
+        }
+
+        const search = table && typeof table.search === 'function' ? String(table.search() || '').trim() : '';
+        const params = new URLSearchParams(window.location.search || '');
+        const dqFilter = String(params.get('dq_filter') || '').trim();
+
+        if (!search && !dqFilter) {
+            return; // default full export behavior
+        }
+
+        e.preventDefault();
+        const exportUrl = new URL(href, window.location.origin);
+        if (search) exportUrl.searchParams.set('search', search);
+        if (dqFilter) exportUrl.searchParams.set('dq_filter', dqFilter);
+        window.location.href = exportUrl.pathname + exportUrl.search;
+    });
+
     $(document).on('click', '#deleteBulkBtn', function() {
         const entity = currentEntity();
         if (entity === 'user') {
