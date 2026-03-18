@@ -96,6 +96,17 @@ class Commune(db.Model):
     wilaya_id = db.Column(db.Integer, db.ForeignKey('wilaya.id', ondelete='CASCADE'), nullable=False)
     sites = db.relationship('Site', backref='commune', cascade="all, delete-orphan", lazy='dynamic')
 
+
+class Road(db.Model):
+    __tablename__ = 'road'
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(80), unique=True, nullable=True, index=True)
+    name = db.Column(db.String(180), nullable=False, index=True)
+    # Store road centerline geometry as GeoJSON (LineString or MultiLineString) for DB portability.
+    geometry_geojson = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
 # --- Fournisseur ---
 class Supplier(db.Model):
     __tablename__ = 'supplier'

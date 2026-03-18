@@ -1233,6 +1233,73 @@ $(document).ready(function() {
         });
     });
 
+    function pollFpallJobStatus(statusUrl, onDone) {
+        fetch(statusUrl, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || data.success === false) {
+                    throw new Error((data && data.message) || 'Unable to read FPall status.');
+                }
+                const status = String(data.status || '').toLowerCase();
+                if (status === 'completed') {
+                    if (typeof onDone === 'function') onDone(true, data);
+                    return;
+                }
+                if (status === 'failed') {
+                    if (typeof onDone === 'function') onDone(false, data);
+                    return;
+                }
+                setTimeout(() => pollFpallJobStatus(statusUrl, onDone), 1500);
+            })
+            .catch(err => {
+                if (typeof onDone === 'function') onDone(false, { message: err.message || 'FPall status polling failed.' });
+            });
+    }
+
+    $(document).on('click', '#loadFpallBtn', function() {
+        const defaultUrl = localStorage.getItem('fpall_url_last') || 'http://10.18.7.35/easynvm';
+        const fpallUrl = (window.prompt('Enter FPall URL', defaultUrl) || '').trim();
+        if (!fpallUrl) return;
+
+        const $btn = $(this);
+        const baseHtml = $btn.html();
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+
+        localStorage.setItem('fpall_url_last', fpallUrl);
+        const payload = new URLSearchParams();
+        payload.set('fpall_url', fpallUrl);
+
+        fetch('/import/fpall/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRF-Token': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload.toString()
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.success || !data.status_url) {
+                throw new Error((data && data.message) || 'Unable to start FPall import.');
+            }
+            showToast('FPall import started. Processing...', 'info');
+            pollFpallJobStatus(data.status_url, function(ok, statusData) {
+                $btn.prop('disabled', false).html(baseHtml);
+                if (ok) {
+                    showToast((statusData && statusData.message) || 'FPall import completed.', 'success');
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast((statusData && statusData.message) || 'FPall import failed.', 'danger');
+                }
+            });
+        })
+        .catch(err => {
+            $btn.prop('disabled', false).html(baseHtml);
+            showToast(err.message || 'FPall import launch error.', 'danger');
+        });
+    });
+
     $(document).on('click', '.open-site-kml-modal', function() {
         const target = $(this).data('target-url') || '/export_kml/sites';
         $('#kmlSiteTarget').val(target);

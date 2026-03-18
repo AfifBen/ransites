@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Road Analysis Results{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+        <h2 class="mb-1">Road Analysis Results</h2>
+        <p class="lead mb-0">
+            Road: <strong>{{ result.road_name }}</strong> |
+            Sites: <strong>{{ result.total_sites }}</strong> |
+            Sectors: <strong>{{ result.total_sectors }}</strong>
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{{ url_for('road_bp.road_analysis_page') }}">
+            <i class="bi bi-arrow-left me-1"></i>New Analysis
+        </a>
+        <a class="btn btn-outline-primary" href="{{ url_for('road_bp.road_analysis_export', road_id=result.road_id, max_sites=params.max_sites, max_distance_m=params.max_distance_m, azimuth_tolerance_deg=params.azimuth_tolerance_deg) }}">
+            <i class="bi bi-download me-1"></i>Export XLSX
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="m-0">Map View</h5>
+        <small>Green = sector facing road, Gray = non-facing</small>
+    </div>
+    <div class="card-body">
+        <div id="roadAnalysisMap" style="height: 500px;"></div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="m-0">Sectors Facing the Road</h5>
+        <small>Azimuth-vs-bearing orientation check</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Sector</th>
+                        <th>DLARFCN</th>
+                        <th>Azimuth (deg)</th>
+                        <th>Distance to Road (m)</th>
+                        <th>Bearing to Road (deg)</th>
+                        <th>Angular Diff (deg)</th>
+                        <th>Beamwidth (deg)</th>
+                        <th>Threshold (deg)</th>
+                        <th>Facing Road</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result.sector_rows %}
+                    <tr>
+                        <td>{{ row.site_code }}</td>
+                        <td>{{ row.sector_code }}</td>
+                        <td>{{ row.dlarfcn_list }}</td>
+                        <td>{{ row.azimuth_deg }}</td>
+                        <td>{{ row.distance_to_road_m }}</td>
+                        <td>{{ row.bearing_to_road_deg }}</td>
+                        <td>{{ row.angular_difference_deg }}</td>
+                        <td>{{ row.beamwidth_deg if row.beamwidth_deg is not none else '-' }}</td>
+                        <td>{{ row.facing_threshold_deg }}</td>
+                        <td>
+                            {% if row.facing_road %}
+                            <span class="badge text-bg-success">YES</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">NO</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="m-0">Nearby Sites</h5>
+        <small>Sorted by shortest distance to road</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th>Site Code</th>
+                        <th>Site Name</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>Selected Road</th>
+                        <th>Distance to Road (m)</th>
+                        <th>Bearing to Road (deg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result.site_rows %}
+                    <tr>
+                        <td>{{ row.site_code }}</td>
+                        <td>{{ row.site_name }}</td>
+                        <td>{{ row.latitude }}</td>
+                        <td>{{ row.longitude }}</td>
+                        <td>{{ row.selected_road }}</td>
+                        <td>{{ row.distance_to_road_m }}</td>
+                        <td>{{ row.bearing_to_road_deg }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block init_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof L === 'undefined') return;
+
+    const map = L.map('roadAnalysisMap').setView([28.0, 2.5], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const bounds = [];
+    const roadGeom = {{ road_geometry_geojson|safe }};
+    try {
+        const roadLayer = L.geoJSON(roadGeom, {
+            style: { color: '#ff6b00', weight: 4, opacity: 0.9 }
+        }).addTo(map);
+        if (roadLayer.getBounds && roadLayer.getBounds().isValid()) {
+            bounds.push(
+                [roadLayer.getBounds().getSouth(), roadLayer.getBounds().getWest()],
+                [roadLayer.getBounds().getNorth(), roadLayer.getBounds().getEast()]
+            );
+        }
+    } catch (e) {
+        console.warn('Road geometry render failed', e);
+    }
+
+    const siteRows = {{ result.site_rows|tojson }};
+    const sectorRows = {{ result.sector_rows|tojson }};
+
+    function destinationPoint(lat, lon, bearingDeg, distanceMeters) {
+        const R = 6371000.0;
+        const brng = bearingDeg * Math.PI / 180.0;
+        const phi1 = lat * Math.PI / 180.0;
+        const lambda1 = lon * Math.PI / 180.0;
+        const delta = distanceMeters / R;
+
+        const phi2 = Math.asin(
+            Math.sin(phi1) * Math.cos(delta) +
+            Math.cos(phi1) * Math.sin(delta) * Math.cos(brng)
+        );
+        const lambda2 = lambda1 + Math.atan2(
+            Math.sin(brng) * Math.sin(delta) * Math.cos(phi1),
+            Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2)
+        );
+        return [phi2 * 180.0 / Math.PI, lambda2 * 180.0 / Math.PI];
+    }
+
+    function buildSectorBeam(lat, lon, azDeg, widthDeg, lengthMeters) {
+        const half = widthDeg / 2.0;
+        const steps = Math.max(6, Math.min(32, Math.round(widthDeg / 4.0)));
+        const pts = [[lat, lon]];
+        for (let i = 0; i <= steps; i++) {
+            const b = azDeg - half + (i * widthDeg / steps);
+            pts.push(destinationPoint(lat, lon, b, lengthMeters));
+        }
+        pts.push([lat, lon]);
+        return pts;
+    }
+
+    for (const row of siteRows) {
+        if (row.latitude == null || row.longitude == null) continue;
+        const marker = L.circleMarker([row.latitude, row.longitude], {
+            radius: 4.5,
+            color: '#0d6efd',
+            fillColor: '#0d6efd',
+            fillOpacity: 0.9,
+            weight: 1
+        }).bindPopup(
+            `<strong>${row.site_code}</strong><br>${row.site_name || ''}<br>${row.distance_to_road_m} m`
+        );
+        marker.addTo(map);
+        bounds.push([row.latitude, row.longitude]);
+    }
+
+    for (const row of sectorRows) {
+        const lat = Number(row.site_latitude);
+        const lon = Number(row.site_longitude);
+        const az = Number(row.azimuth_deg);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(az)) continue;
+
+        const width = Number(row.beamwidth_deg || 40);
+        const beamWidth = Math.max(10, Math.min(120, width));
+        const beamLengthMeters = 220;
+        const polygon = buildSectorBeam(lat, lon, az, beamWidth, beamLengthMeters);
+
+        const facing = !!row.facing_road;
+        const fillColor = facing ? '#1f9d55' : '#8a8f98';
+        const strokeColor = facing ? '#157347' : '#606975';
+
+        L.polygon(polygon, {
+            color: strokeColor,
+            weight: 1,
+            opacity: 0.95,
+            fillColor: fillColor,
+            fillOpacity: 0.3
+        }).bindPopup(
+            `<strong>${row.sector_code || '-'}</strong><br>` +
+            `Site: ${row.site_code || '-'}<br>` +
+            `Azimuth: ${row.azimuth_deg}°<br>` +
+            `Facing road: ${facing ? 'YES' : 'NO'}`
+        ).addTo(map);
+    }
+
+    if (bounds.length) {
+        map.fitBounds(bounds, { padding: [24, 24] });
+    }
+});
+</script>
+{% endblock %}

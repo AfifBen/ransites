@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import json
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 from app.security import append_audit_event, login_required, csrf_protect, admin_required
 # --- IMPORTS CRITIQUES : Ajustez si nécessaire ---
@@ -1644,20 +1644,34 @@ def generate_validation_report(self, errors):
 @login_required
 @csrf_protect
 def start_fpall_import():
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "No file uploaded."}), 400
+    file = request.files.get('file')
+    fpall_url = (request.form.get("fpall_url") or "").strip()
+    payload = b""
+    filename = ""
 
-    file = request.files['file']
-    if not file or not file.filename:
-        return jsonify({"success": False, "message": "Please select an FPall file."}), 400
-
-    filename = file.filename
-    if not filename.lower().endswith('.xlsx'):
-        return jsonify({"success": False, "message": "FPall import accepts .xlsx only."}), 400
-
-    payload = file.read()
-    if not payload:
-        return jsonify({"success": False, "message": "Uploaded file is empty."}), 400
+    if file and file.filename:
+        filename = file.filename
+        if not filename.lower().endswith('.xlsx'):
+            return jsonify({"success": False, "message": "FPall import accepts .xlsx only."}), 400
+        payload = file.read()
+        if not payload:
+            return jsonify({"success": False, "message": "Uploaded file is empty."}), 400
+    elif fpall_url:
+        try:
+            parsed = urlparse(fpall_url)
+            if parsed.scheme not in {"http", "https"}:
+                return jsonify({"success": False, "message": "FPall URL must start with http:// or https://."}), 400
+            with urlopen(fpall_url, timeout=30) as resp:
+                payload = resp.read()
+            filename = Path(parsed.path or "").name or "fpall_remote.xlsx"
+            if not filename.lower().endswith(".xlsx"):
+                filename = "fpall_remote.xlsx"
+            if not payload:
+                return jsonify({"success": False, "message": "FPall URL returned an empty file."}), 400
+        except Exception as exc:
+            return jsonify({"success": False, "message": f"Unable to download FPall URL: {exc}"}), 400
+    else:
+        return jsonify({"success": False, "message": "Provide an FPall file or FPall URL."}), 400
 
     tmp = tempfile.NamedTemporaryFile(prefix="fpall_", suffix=".xlsx", delete=False)
     tmp.write(payload)

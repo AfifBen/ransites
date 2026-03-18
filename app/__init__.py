@@ -39,6 +39,8 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///radio.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
+    app.config["ROADS_GEOJSON_URL"] = os.getenv("ROADS_GEOJSON_URL", "").strip()
+    app.config["ROAD_IMPORT_HTTP_TIMEOUT"] = int(os.getenv("ROAD_IMPORT_HTTP_TIMEOUT", "45"))
     if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
             "connect_args": {
@@ -103,5 +105,8 @@ def create_app():
 
     from app.routes.auth import auth_bp
     app.register_blueprint(auth_bp)
+
+    from app.routes.road_analysis import road_bp
+    app.register_blueprint(road_bp)
 
     return app

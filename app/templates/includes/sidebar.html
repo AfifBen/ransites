@@ -115,7 +115,7 @@
             <i class="bi bi-chevron-down small text-white"></i>
         </a>
 
-        <div class="collapse {{ 'show' if path.startswith('/allplan_export') or path.startswith('/lbs_export') or path.startswith('/kml_export') else '' }}" id="planningCollapse" data-bs-parent="#sidebarAccordion">
+        <div class="collapse {{ 'show' if path.startswith('/allplan_export') or path.startswith('/lbs_export') or path.startswith('/kml_export') or path.startswith('/road-analysis') else '' }}" id="planningCollapse" data-bs-parent="#sidebarAccordion">
             <nav class="nav flex-column ps-3">
                 <a class="nav-link {{ 'active' if path.startswith('/allplan_export') else '' }}" href="{{ url_for('main.allplan_export_page') }}">
                     <i class="bi bi-grid-3x3-gap-fill me-2"></i> Allplan
@@ -125,6 +125,9 @@
                 </a>
                 <a class="nav-link {{ 'active' if path.startswith('/kml_export') else '' }}" href="{{ url_for('main.kml_export_page') }}">
                     <i class="bi bi-globe2 me-2"></i> KML
+                </a>
+                <a class="nav-link {{ 'active' if path.startswith('/road-analysis') else '' }}" href="{{ url_for('road_bp.road_analysis_page') }}">
+                    <i class="bi bi-signpost-split me-2"></i> Road Analysis
                 </a>
             </nav>
         </div>
