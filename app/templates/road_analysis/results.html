@@ -15,18 +15,35 @@
         <a class="btn btn-outline-secondary" href="{{ url_for('road_bp.road_analysis_page') }}">
             <i class="bi bi-arrow-left me-1"></i>New Analysis
         </a>
-        <a class="btn btn-outline-primary" href="{{ url_for('road_bp.road_analysis_export', road_id=result.road_id, max_sites=params.max_sites, max_distance_m=params.max_distance_m, azimuth_tolerance_deg=params.azimuth_tolerance_deg) }}">
+        <a class="btn btn-outline-primary" href="{{ url_for('road_bp.road_analysis_export', road_id=result.road_id, max_sites=params.max_sites, site_distance_m=params.site_distance_m, beam_width_deg=params.beam_width_deg, beam_length_m=params.beam_length_m) }}">
             <i class="bi bi-download me-1"></i>Export XLSX
         </a>
     </div>
 </div>
 
+<div class="mb-2 d-flex flex-wrap gap-2">
+    <span class="badge text-bg-dark">Sites max: {{ params.max_sites }}</span>
+    <span class="badge text-bg-secondary">Site distance: {{ params.site_distance_m }} m</span>
+    <span class="badge text-bg-secondary">Beam width: {{ params.beam_width_deg }} deg</span>
+    <span class="badge text-bg-secondary">Beam length: {{ params.beam_length_m }} m</span>
+</div>
+
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h5 class="m-0">Map View</h5>
-        <small>Green = sector facing road, Gray = non-facing</small>
+        <small>Default beams: 40 deg / 200 m. Green = valid, gray = non-valid.</small>
     </div>
     <div class="card-body">
+        <div class="d-flex gap-4 mb-2">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="toggleCalcBeams">
+                <label class="form-check-label" for="toggleCalcBeams">Show calculation beams (configured width/length)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="toggleIntersectionLines">
+                <label class="form-check-label" for="toggleIntersectionLines">Show intersection lines (orange)</label>
+            </div>
+        </div>
         <div id="roadAnalysisMap" style="height: 500px;"></div>
     </div>
 </div>
@@ -45,12 +62,9 @@
                         <th>Sector</th>
                         <th>DLARFCN</th>
                         <th>Azimuth (deg)</th>
-                        <th>Distance to Road (m)</th>
-                        <th>Bearing to Road (deg)</th>
-                        <th>Angular Diff (deg)</th>
-                        <th>Beamwidth (deg)</th>
-                        <th>Threshold (deg)</th>
-                        <th>Facing Road</th>
+                        <th>Beam Intersection Distance (m)</th>
+                        <th>Bearing Intersection (deg)</th>
+                        <th>Valid (Beam Intersects)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -60,11 +74,8 @@
                         <td>{{ row.sector_code }}</td>
                         <td>{{ row.dlarfcn_list }}</td>
                         <td>{{ row.azimuth_deg }}</td>
-                        <td>{{ row.distance_to_road_m }}</td>
-                        <td>{{ row.bearing_to_road_deg }}</td>
-                        <td>{{ row.angular_difference_deg }}</td>
-                        <td>{{ row.beamwidth_deg if row.beamwidth_deg is not none else '-' }}</td>
-                        <td>{{ row.facing_threshold_deg }}</td>
+                        <td>{{ row.distance_intersection_m if row.distance_intersection_m is not none else '-' }}</td>
+                        <td>{{ row.bearing_intersection_deg if row.bearing_intersection_deg is not none else '-' }}</td>
                         <td>
                             {% if row.facing_road %}
                             <span class="badge text-bg-success">YES</span>
@@ -83,7 +94,7 @@
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h5 class="m-0">Nearby Sites</h5>
-        <small>Sorted by shortest distance to road</small>
+        <small>Sorted by shortest distance to road (min distance)</small>
     </div>
     <div class="card-body">
         <div class="table-responsive">
@@ -95,8 +106,10 @@
                         <th>Latitude</th>
                         <th>Longitude</th>
                         <th>Selected Road</th>
-                        <th>Distance to Road (m)</th>
-                        <th>Bearing to Road (deg)</th>
+                        <th>Min Distance (m)</th>
+                        <th>Perpendicular Distance (m)</th>
+                        <th>Bearing Min (deg)</th>
+                        <th>Bearing Perpendicular (deg)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -108,7 +121,9 @@
                         <td>{{ row.longitude }}</td>
                         <td>{{ row.selected_road }}</td>
                         <td>{{ row.distance_to_road_m }}</td>
+                        <td>{{ row.distance_perpendicular_m }}</td>
                         <td>{{ row.bearing_to_road_deg }}</td>
+                        <td>{{ row.bearing_perpendicular_deg }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -130,6 +145,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }).addTo(map);
 
     const bounds = [];
+    const sectorBeamsLayer = L.layerGroup().addTo(map);
+    const calcBeamsLayer = L.layerGroup();
+    const intersectionLinesLayer = L.layerGroup();
     const roadGeom = {{ road_geometry_geojson|safe }};
     try {
         const roadLayer = L.geoJSON(roadGeom, {
@@ -147,6 +165,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const siteRows = {{ result.site_rows|tojson }};
     const sectorRows = {{ result.sector_rows|tojson }};
+    const calcBeamWidth = Number({{ params.beam_width_deg|tojson }});
+    const calcBeamLength = Number({{ params.beam_length_m|tojson }});
 
     function destinationPoint(lat, lon, bearingDeg, distanceMeters) {
         const R = 6371000.0;
@@ -154,7 +174,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const phi1 = lat * Math.PI / 180.0;
         const lambda1 = lon * Math.PI / 180.0;
         const delta = distanceMeters / R;
-
         const phi2 = Math.asin(
             Math.sin(phi1) * Math.cos(delta) +
             Math.cos(phi1) * Math.sin(delta) * Math.cos(brng)
@@ -180,17 +199,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
     for (const row of siteRows) {
         if (row.latitude == null || row.longitude == null) continue;
-        const marker = L.circleMarker([row.latitude, row.longitude], {
+
+        const sitePoint = [Number(row.latitude), Number(row.longitude)];
+        const marker = L.circleMarker(sitePoint, {
             radius: 4.5,
             color: '#0d6efd',
             fillColor: '#0d6efd',
             fillOpacity: 0.9,
             weight: 1
         }).bindPopup(
-            `<strong>${row.site_code}</strong><br>${row.site_name || ''}<br>${row.distance_to_road_m} m`
+            `<strong>${row.site_code}</strong><br>${row.site_name || ''}<br>` +
+            `Min: ${row.distance_to_road_m} m<br>` +
+            `Perp: ${row.distance_perpendicular_m} m`
         );
         marker.addTo(map);
-        bounds.push([row.latitude, row.longitude]);
+        bounds.push(sitePoint);
     }
 
     for (const row of sectorRows) {
@@ -199,10 +222,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const az = Number(row.azimuth_deg);
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(az)) continue;
 
-        const width = Number(row.beamwidth_deg || 40);
-        const beamWidth = Math.max(10, Math.min(120, width));
-        const beamLengthMeters = 220;
-        const polygon = buildSectorBeam(lat, lon, az, beamWidth, beamLengthMeters);
+        const defaultBeamWidth = 40;
+        const defaultBeamLengthMeters = 200;
+        const polygon = buildSectorBeam(lat, lon, az, defaultBeamWidth, defaultBeamLengthMeters);
 
         const facing = !!row.facing_road;
         const fillColor = facing ? '#1f9d55' : '#8a8f98';
@@ -217,10 +239,60 @@ document.addEventListener('DOMContentLoaded', function () {
         }).bindPopup(
             `<strong>${row.sector_code || '-'}</strong><br>` +
             `Site: ${row.site_code || '-'}<br>` +
-            `Azimuth: ${row.azimuth_deg}°<br>` +
+            `Azimuth: ${row.azimuth_deg} deg<br>` +
             `Facing road: ${facing ? 'YES' : 'NO'}`
-        ).addTo(map);
+        ).addTo(sectorBeamsLayer);
+
+        const calcPolygon = buildSectorBeam(
+            lat,
+            lon,
+            az,
+            Math.max(10, Math.min(120, Number.isFinite(calcBeamWidth) ? calcBeamWidth : 60)),
+            Math.max(100, Math.min(10000, Number.isFinite(calcBeamLength) ? calcBeamLength : 1000))
+        );
+        L.polygon(calcPolygon, {
+            color: facing ? '#0f5132' : '#6c757d',
+            weight: 1,
+            opacity: 0.85,
+            fillOpacity: 0.0,
+            dashArray: '6,4'
+        }).addTo(calcBeamsLayer);
+
+        if (row.intersection_road_latitude != null && row.intersection_road_longitude != null) {
+            const interceptLine = [
+                [Number(row.site_latitude), Number(row.site_longitude)],
+                [Number(row.intersection_road_latitude), Number(row.intersection_road_longitude)]
+            ];
+            L.polyline(interceptLine, {
+                color: '#ff9800',
+                weight: 2.8,
+                opacity: 0.9
+            }).bindPopup(
+                `<strong>${row.sector_code || '-'}</strong><br>` +
+                `Intersection distance: ${row.distance_intersection_m} m`
+            ).addTo(intersectionLinesLayer);
+            bounds.push(interceptLine[1]);
+        }
     }
+
+    const calcBeamsToggle = document.getElementById('toggleCalcBeams');
+    const orangeToggle = document.getElementById('toggleIntersectionLines');
+    function syncOverlayVisibility() {
+        if (!map.hasLayer(sectorBeamsLayer)) map.addLayer(sectorBeamsLayer);
+        if (calcBeamsToggle && calcBeamsToggle.checked) {
+            if (!map.hasLayer(calcBeamsLayer)) map.addLayer(calcBeamsLayer);
+        } else if (map.hasLayer(calcBeamsLayer)) {
+            map.removeLayer(calcBeamsLayer);
+        }
+        if (orangeToggle && orangeToggle.checked) {
+            if (!map.hasLayer(intersectionLinesLayer)) map.addLayer(intersectionLinesLayer);
+        } else if (map.hasLayer(intersectionLinesLayer)) {
+            map.removeLayer(intersectionLinesLayer);
+        }
+    }
+    if (calcBeamsToggle) calcBeamsToggle.addEventListener('change', syncOverlayVisibility);
+    if (orangeToggle) orangeToggle.addEventListener('change', syncOverlayVisibility);
+    syncOverlayVisibility();
 
     if (bounds.length) {
         map.fitBounds(bounds, { padding: [24, 24] });

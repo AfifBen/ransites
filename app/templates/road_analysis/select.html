@@ -21,7 +21,7 @@
         {% else %}
         <form action="{{ url_for('road_bp.road_analysis_results') }}" method="POST" class="row g-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12 col-md-6">
+            <div class="col-12 col-md-4">
                 <label class="form-label">Road</label>
                 <select name="road_id" class="form-select" required>
                     <option value="">Select a road</option>
@@ -35,12 +35,16 @@
                 <input type="number" class="form-control" name="max_sites" min="1" max="5000" value="{{ defaults.max_sites }}">
             </div>
             <div class="col-12 col-md-2">
-                <label class="form-label">Max distance (m)</label>
-                <input type="number" class="form-control" name="max_distance_m" min="10" max="500000" value="{{ defaults.max_distance_m }}">
+                <label class="form-label">Site Distance (m)</label>
+                <input type="number" class="form-control" name="site_distance_m" min="100" max="100000" value="{{ defaults.site_distance_m }}">
             </div>
             <div class="col-12 col-md-2">
-                <label class="form-label">AZ tolerance (deg)</label>
-                <input type="number" class="form-control" name="azimuth_tolerance_deg" min="1" max="180" value="{{ defaults.azimuth_tolerance_deg }}">
+                <label class="form-label">Beam Width (deg)</label>
+                <input type="number" class="form-control" name="beam_width_deg" min="10" max="120" value="{{ defaults.beam_width_deg }}">
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label">Beam Length (m)</label>
+                <input type="number" class="form-control" name="beam_length_m" min="100" max="10000" value="{{ defaults.beam_length_m }}">
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">
@@ -55,43 +59,10 @@
 {% if current_user.is_admin_user %}
 <div class="card shadow-sm mt-4">
     <div class="card-header bg-dark text-white">
-        <h5 class="m-0"><i class="bi bi-upload me-2"></i>Road Dataset Management</h5>
+        <h5 class="m-0"><i class="bi bi-upload me-2"></i>Build Route</h5>
     </div>
     <div class="card-body">
-        <form action="{{ url_for('road_bp.import_roads_geojson') }}" method="POST" enctype="multipart/form-data" class="row g-3">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12 col-md-8">
-                <label class="form-label">GeoJSON Roads File</label>
-                <input type="file" name="roads_file" class="form-control" accept=".json,.geojson" required>
-            </div>
-            <div class="col-12 col-md-4 d-flex align-items-end">
-                <button type="submit" class="btn btn-outline-primary w-100">
-                    <i class="bi bi-arrow-repeat me-1"></i>Import / Update Roads
-                </button>
-            </div>
-        </form>
-        <hr>
-        <form action="{{ url_for('road_bp.import_roads_from_url') }}" method="POST" class="row g-3">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12 col-md-8">
-                <label class="form-label">GeoJSON Roads URL (real roads)</label>
-                <input
-                    type="url"
-                    name="roads_geojson_url"
-                    class="form-control"
-                    placeholder="https://.../algeria_roads.geojson"
-                    value="{{ roads_geojson_url }}"
-                >
-                <small class="text-muted">You can keep this field empty to use <code>ROADS_GEOJSON_URL</code> from environment.</small>
-            </div>
-            <div class="col-12 col-md-4 d-flex align-items-end">
-                <button type="submit" class="btn btn-outline-success w-100">
-                    <i class="bi bi-cloud-download me-1"></i>Import Roads from URL
-                </button>
-            </div>
-        </form>
-        <hr>
-        <form action="{{ url_for('road_bp.import_road_from_csv_points') }}" method="POST" enctype="multipart/form-data" class="row g-3">
+        <form action="{{ url_for('road_bp.import_road_from_file') }}" method="POST" enctype="multipart/form-data" class="row g-3">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-12 col-md-3">
                 <label class="form-label">Road code</label>
@@ -102,9 +73,9 @@
                 <input type="text" name="road_name" class="form-control" placeholder="Route Nationale 5" required>
             </div>
             <div class="col-12 col-md-4">
-                <label class="form-label">CSV points file</label>
-                <input type="file" name="road_points_file" class="form-control" accept=".csv,text/csv" required>
-                <small class="text-muted">Required headers: <code>lon</code>/<code>longitude</code> and <code>lat</code>/<code>latitude</code>. Optional: <code>order</code>.</small>
+                <label class="form-label">Route file (.csv or .kml)</label>
+                <input type="file" name="road_file" class="form-control" accept=".csv,.kml,text/csv,application/vnd.google-earth.kml+xml" required>
+                <small class="text-muted">CSV: headers <code>lon/longitude</code> and <code>lat/latitude</code>. KML: LineString or Point list.</small>
             </div>
             <div class="col-12">
                 <div class="form-check">
@@ -116,7 +87,7 @@
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-outline-warning">
-                    <i class="bi bi-diagram-3 me-1"></i>Build Road from CSV Points
+                    <i class="bi bi-diagram-3 me-1"></i>Build Route
                 </button>
             </div>
         </form>
